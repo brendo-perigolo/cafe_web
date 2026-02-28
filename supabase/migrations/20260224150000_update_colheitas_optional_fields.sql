@@ -1,0 +1,8 @@
+BEGIN;
+
+ALTER TABLE public.colheitas
+  ADD COLUMN IF NOT EXISTS numero_bag TEXT,
+  ALTER COLUMN preco_por_kg DROP NOT NULL,
+  ALTER COLUMN valor_total DROP NOT NULL;
+
+COMMIT;

@@ -1,0 +1,139 @@
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;600;700&family=Sora:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    /* Tema Café - Cores principais */
+    --background: 210 45% 97%;
+    --foreground: 24 25% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 24 25% 12%;
+
+    --popover: 210 45% 98%;
+    --popover-foreground: 24 25% 12%;
+
+    --primary: 196 65% 40%;
+    --primary-foreground: 210 33% 98%;
+
+    --secondary: 152 45% 40%;
+    --secondary-foreground: 210 33% 98%;
+
+    --muted: 210 30% 92%;
+    --muted-foreground: 215 15% 38%;
+
+    --accent: 24 55% 42%;
+    --accent-foreground: 27 45% 96%;
+
+    --destructive: 3 72% 52%;
+    --destructive-foreground: 32 25% 96%;
+
+    --border: 210 25% 86%;
+    --input: 210 25% 86%;
+    --ring: 196 65% 40%;
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 0 0% 98%;
+
+    --sidebar-foreground: 240 5.3% 26.1%;
+
+    --sidebar-primary: 240 5.9% 10%;
+
+    --sidebar-primary-foreground: 0 0% 98%;
+
+    --sidebar-accent: 240 4.8% 95.9%;
+
+    --sidebar-accent-foreground: 240 5.9% 10%;
+
+    --sidebar-border: 220 13% 91%;
+
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    /* Tema Café Dark - tons mais escuros */
+    --background: 22 35% 8%;
+    --foreground: 32 20% 95%;
+
+    --card: 24 28% 12%;
+    --card-foreground: 32 20% 95%;
+
+    --popover: 24 28% 12%;
+    --popover-foreground: 32 20% 95%;
+
+    --primary: 22 55% 50%;
+    --primary-foreground: 22 20% 8%;
+
+    --secondary: 140 35% 40%;
+    --secondary-foreground: 32 20% 95%;
+
+    --muted: 24 15% 20%;
+    --muted-foreground: 32 20% 70%;
+
+    --accent: 32 65% 52%;
+    --accent-foreground: 22 20% 8%;
+
+    --destructive: 3 60% 35%;
+    --destructive-foreground: 32 20% 95%;
+
+    --border: 24 18% 22%;
+    --input: 24 18% 22%;
+    --ring: 22 55% 50%;
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Sora', 'Segoe UI', sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold;
+    font-family: 'Bricolage Grotesque', 'Sora', sans-serif;
+  }
+
+  .font-display {
+    font-family: 'Bricolage Grotesque', 'Sora', sans-serif;
+  }
+}
+
+@layer utilities {
+  .gradient-coffee {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)));
+  }
+
+  .shadow-coffee {
+    box-shadow: 0 4px 20px -2px hsl(var(--primary) / 0.15);
+  }
+
+  .transition-smooth {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .glass-panel {
+    background: linear-gradient(135deg, hsl(var(--card) / 0.85), hsl(var(--card) / 0.65));
+    box-shadow: 0 20px 45px -25px hsl(var(--primary) / 0.45);
+    border: 1px solid hsl(var(--border));
+  }
+}
