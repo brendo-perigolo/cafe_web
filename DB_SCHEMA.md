@@ -11,6 +11,7 @@ Documento de referência para integrar o aplicativo Android diretamente ao Supab
 | `empresas_usuarios`| Liga usuários às empresas e controla status.          |
 | `panhadores`       | Cadastro de panhadores vinculado a uma empresa.       |
 | `colheitas`        | Lançamentos de colheita vinculados a empresa/panhador.|
+| `empresas_config`  | Configurações por empresa (kg por saco e preço padrão).|
 
 ## Tabelas
 
@@ -78,7 +79,9 @@ RLS: apenas membros ativos da empresa (ou master) podem ver/manipular os registr
 | `user_id`     | `uuid`        | Sim         | —                                                | Usuário que registrou (FK → `profiles.id`).                 |
 | `panhador_id` | `uuid`        | Sim         | —                                                | FK → `panhadores.id`.                                       |
 | `peso_kg`     | `numeric(10,2)` | Sim       | —                                                | Quantidade colhida.                                         |
+| `quantidade_sacos`| `numeric(12,4)` | Não      | `null`                                           | Calculado: $peso_kg / kg_por_saco$.                         |
 | `preco_por_kg`| `numeric(10,2)` | Não       | `null`                                           | Informado por lançamento (pode ser omitido).                |
+| `preco_por_saco`| `numeric(10,2)` | Não      | `null`                                           | Calculado a partir da configuração / `preco_por_kg`.        |
 | `valor_total` | `numeric(10,2)` | Não       | `null`                                           | Calculado no app quando `preco_por_kg` é enviado.          |
 | `numero_bag`  | `text`        | Não        | `null`                                           | Código da bag, opcional.                                    |
 | `data_colheita`| `timestamptz`| Sim         | `now()`                                          | Data da coleta.                                             |
@@ -86,6 +89,19 @@ RLS: apenas membros ativos da empresa (ou master) podem ver/manipular os registr
 | `created_at`, `updated_at` | `timestamptz` | Sim | `now()` | Mantidos por triggers.                          |
 
 RLS: somente membros ativos da empresa (e o usuário autenticado) podem inserir/alterar/deletar. O e-mail master também possui acesso completo.
+
+### empresas_config
+
+Tabela de configuração por empresa, usada para calcular automaticamente valores de colheitas quando o app envia apenas o peso em kg.
+
+| Coluna                | Tipo           | Obrigatório | Default | Notas |
+|-----------------------|----------------|-------------|---------|------|
+| `empresa_id`          | `uuid`         | Sim         | —       | PK e FK → `empresas.id`. |
+| `kg_por_saco`         | `numeric(10,2)`| Sim         | `60`    | Média/padrão de kg por saco. |
+| `preco_padrao_por_saco`| `numeric(10,2)`| Sim        | `50`    | Preço padrão do saco (R$). |
+| `created_at`, `updated_at` | `timestamptz` | Sim    | `now()` | `updated_at` via trigger. |
+
+RLS: membros ativos da empresa podem ler/inserir/atualizar. Exclusão restrita ao e-mail master.
 
 ## Fluxo para o App Android
 
@@ -105,13 +121,12 @@ RLS: somente membros ativos da empresa (e o usuário autenticado) podem inserir/
      "user_id": "<uid>",
      "panhador_id": "<panhador_id>",
      "peso_kg": 120.5,
-     "preco_por_kg": 45.90,
-     "valor_total": 5533.95,
      "numero_bag": "BAG-102",
      "data_colheita": "2026-02-24T12:30:00Z",
      "sincronizado": true
    }
    ```
+   Se `preco_por_kg`, `preco_por_saco` e `valor_total` não forem enviados, o Supabase calcula automaticamente com base em `empresas_config`.
    A resposta incluirá o campo `codigo`. Se estiver offline, armazene localmente e envie depois.
 5. **Leitura dos totais:** filtre sempre por `empresa_id` para garantir isolamento, ex.:
    ```http

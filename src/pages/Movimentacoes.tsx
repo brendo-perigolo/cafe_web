@@ -367,7 +367,10 @@ export default function Movimentacoes() {
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
               />
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <Select
+                value={statusFilter}
+                onValueChange={(value) => setStatusFilter(value as "todos" | "com-valor" | "pendentes")}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Filtrar por status" />
                 </SelectTrigger>

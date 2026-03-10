@@ -25,6 +25,8 @@ export type Database = {
           panhador_id: string
           peso_kg: number
           preco_por_kg: number | null
+          preco_por_saco: number | null
+          quantidade_sacos: number | null
           sincronizado: boolean
           updated_at: string
           user_id: string
@@ -40,6 +42,8 @@ export type Database = {
           panhador_id: string
           peso_kg: number
           preco_por_kg?: number | null
+          preco_por_saco?: number | null
+          quantidade_sacos?: number | null
           sincronizado?: boolean
           updated_at?: string
           user_id: string
@@ -55,6 +59,8 @@ export type Database = {
           panhador_id?: string
           peso_kg?: number
           preco_por_kg?: number | null
+          preco_por_saco?: number | null
+          quantidade_sacos?: number | null
           sincronizado?: boolean
           updated_at?: string
           user_id?: string
@@ -77,6 +83,55 @@ export type Database = {
           },
           {
             foreignKeyName: "colheitas_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      colheitas_historico: {
+        Row: {
+          id: string
+          colheita_id: string
+          empresa_id: string
+          user_id: string | null
+          dados: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          colheita_id: string
+          empresa_id: string
+          user_id?: string | null
+          dados: Json
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          colheita_id?: string
+          empresa_id?: string
+          user_id?: string | null
+          dados?: Json
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "colheitas_historico_colheita_id_fkey"
+            columns: ["colheita_id"]
+            isOneToOne: false
+            referencedRelation: "colheitas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "colheitas_historico_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "colheitas_historico_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
@@ -125,6 +180,38 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      empresas_config: {
+        Row: {
+          empresa_id: string
+          kg_por_saco: number
+          preco_padrao_por_saco: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          empresa_id: string
+          kg_por_saco?: number
+          preco_padrao_por_saco?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          empresa_id?: string
+          kg_por_saco?: number
+          preco_padrao_por_saco?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresas_config_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: true
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       empresas_usuarios: {
         Row: {

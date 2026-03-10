@@ -2,24 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import {
-  BarChart3,
   Calendar,
-  ClipboardCheck,
-  ClipboardList,
   Clock3,
   Coffee,
-  Download,
   LogOut,
   NotebookPen,
   Package,
   RefreshCw,
-  Settings,
-  Share2,
-  ShieldCheck,
+  Smartphone,
   TrendingUp,
-  Upload,
   Users,
-  Wrench,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -63,12 +55,8 @@ type QuickLink = {
 
 const navigationItems: NavigationItem[] = [
   { label: "Cadastros", icon: Users, route: "/panhadores" },
-  { label: "Equipamentos", icon: Wrench },
+  { label: "Aparelhos", icon: Smartphone },
   { label: "Movimentações", icon: Clock3, route: "/movimentacoes" },
-  { label: "Apuração e Cálculo", icon: BarChart3 },
-  { label: "Integração", icon: Share2 },
-  { label: "Fiscalização", icon: ShieldCheck },
-  { label: "Configurações", icon: Settings, route: "/selecionar-empresa" },
 ];
 
 const currencyFormatter = new Intl.NumberFormat("pt-BR", {
@@ -265,11 +253,18 @@ export default function Dashboard() {
 
   const quickLinks: QuickLink[] = [
     {
-      label: "Funcionários",
+      label: "Cadastros",
       description: "Panhadores e equipes",
       icon: Users,
       action: () => navigate("/panhadores"),
       accent: "from-sky-50 to-white border-sky-100 text-sky-700",
+    },
+    {
+      label: "Aparelhos",
+      description: "Gestão de aparelhos",
+      icon: Smartphone,
+      action: () => toast({ title: "Aparelhos", description: "Função em desenvolvimento." }),
+      accent: "from-violet-50 to-white border-violet-100 text-violet-700",
     },
     {
       label: "Movimentações",
@@ -277,34 +272,6 @@ export default function Dashboard() {
       icon: Clock3,
       action: () => navigate("/movimentacoes"),
       accent: "from-emerald-50 to-white border-emerald-100 text-emerald-700",
-    },
-    {
-      label: "Baixar relatórios",
-      description: "Exportar planilhas",
-      icon: Download,
-      action: () => toast({ title: "Exportação", description: "Função em desenvolvimento." }),
-      accent: "from-blue-50 to-white border-blue-100 text-blue-700",
-    },
-    {
-      label: "Lançar movimentação",
-      description: "Registrar nova panha",
-      icon: Upload,
-      action: () => setLancamentoDialogOpen(true),
-      accent: "from-cyan-50 to-white border-cyan-100 text-cyan-700",
-    },
-    {
-      label: "Apuração",
-      description: "Conferir valores",
-      icon: ClipboardCheck,
-      action: () => navigate("/dashboard"),
-      accent: "from-amber-50 to-white border-amber-100 text-amber-700",
-    },
-    {
-      label: "Atribuições",
-      description: "Organizar lotes",
-      icon: ClipboardList,
-      action: () => navigate("/dashboard"),
-      accent: "from-rose-50 to-white border-rose-100 text-rose-700",
     },
   ];
 
