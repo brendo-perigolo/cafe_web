@@ -3,15 +3,18 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
 
-interface PendingColheita {
+export interface PendingColheita {
   id: string;
   peso_kg: number;
   preco_por_kg: number | null;
+  preco_por_balaio?: number | null;
+  kg_por_balaio_utilizado?: number | null;
   valor_total: number | null;
   panhador_id: string;
   data_colheita: string;
   numero_bag: string | null;
   empresa_id: string;
+  mostrar_balaio_no_ticket?: boolean;
 }
 
 export const useOfflineSync = () => {
@@ -74,6 +77,8 @@ export const useOfflineSync = () => {
         const { error } = await supabase.from("colheitas").insert({
           peso_kg: colheita.peso_kg,
           preco_por_kg: colheita.preco_por_kg,
+          preco_por_balaio: colheita.preco_por_balaio ?? null,
+          kg_por_balaio_utilizado: colheita.kg_por_balaio_utilizado ?? null,
           valor_total: colheita.valor_total,
           panhador_id: colheita.panhador_id,
           user_id: user.id,
@@ -81,6 +86,7 @@ export const useOfflineSync = () => {
           empresa_id: colheita.empresa_id,
           numero_bag: colheita.numero_bag,
           sincronizado: true,
+          mostrar_balaio_no_ticket: colheita.mostrar_balaio_no_ticket ?? false,
         });
 
         if (error) throw error;

@@ -21,12 +21,19 @@ export type Database = {
           data_colheita: string
           id: string
           empresa_id: string
+          pagamento_lote: string | null
+          pago_em: string | null
+          pago_por: string | null
           numero_bag: string | null
           panhador_id: string
           peso_kg: number
           preco_por_kg: number | null
+          preco_por_balaio: number | null
           preco_por_saco: number | null
+          kg_por_balaio_utilizado: number | null
+          quantidade_balaios: number | null
           quantidade_sacos: number | null
+          mostrar_balaio_no_ticket: boolean
           sincronizado: boolean
           updated_at: string
           user_id: string
@@ -38,12 +45,19 @@ export type Database = {
           data_colheita?: string
           id?: string
           empresa_id: string
+          pagamento_lote?: string | null
+          pago_em?: string | null
+          pago_por?: string | null
           numero_bag?: string | null
           panhador_id: string
           peso_kg: number
           preco_por_kg?: number | null
+          preco_por_balaio?: number | null
           preco_por_saco?: number | null
+          kg_por_balaio_utilizado?: number | null
+          quantidade_balaios?: number | null
           quantidade_sacos?: number | null
+          mostrar_balaio_no_ticket?: boolean
           sincronizado?: boolean
           updated_at?: string
           user_id: string
@@ -55,12 +69,19 @@ export type Database = {
           data_colheita?: string
           id?: string
           empresa_id?: string
+          pagamento_lote?: string | null
+          pago_em?: string | null
+          pago_por?: string | null
           numero_bag?: string | null
           panhador_id?: string
           peso_kg?: number
           preco_por_kg?: number | null
+          preco_por_balaio?: number | null
           preco_por_saco?: number | null
+          kg_por_balaio_utilizado?: number | null
+          quantidade_balaios?: number | null
           quantidade_sacos?: number | null
+          mostrar_balaio_no_ticket?: boolean
           sincronizado?: boolean
           updated_at?: string
           user_id?: string
@@ -184,22 +205,28 @@ export type Database = {
       empresas_config: {
         Row: {
           empresa_id: string
+          kg_por_balaio: number
           kg_por_saco: number
           preco_padrao_por_saco: number
+          usar_kg_por_balaio_padrao: boolean
           created_at: string
           updated_at: string
         }
         Insert: {
           empresa_id: string
+          kg_por_balaio?: number
           kg_por_saco?: number
           preco_padrao_por_saco?: number
+          usar_kg_por_balaio_padrao?: boolean
           created_at?: string
           updated_at?: string
         }
         Update: {
           empresa_id?: string
+          kg_por_balaio?: number
           kg_por_saco?: number
           preco_padrao_por_saco?: number
+          usar_kg_por_balaio_padrao?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -259,6 +286,9 @@ export type Database = {
         Row: {
           apelido: string | null
           ativo: boolean
+          bag_atualizado_em: string | null
+          bag_numero: string | null
+          bag_semana: string | null
           cpf: string | null
           created_at: string
           empresa_id: string
@@ -271,6 +301,9 @@ export type Database = {
         Insert: {
           apelido?: string | null
           ativo?: boolean
+          bag_atualizado_em?: string | null
+          bag_numero?: string | null
+          bag_semana?: string | null
           cpf?: string | null
           created_at?: string
           empresa_id: string
@@ -283,6 +316,9 @@ export type Database = {
         Update: {
           apelido?: string | null
           ativo?: boolean
+          bag_atualizado_em?: string | null
+          bag_numero?: string | null
+          bag_semana?: string | null
           cpf?: string | null
           created_at?: string
           empresa_id?: string
@@ -303,6 +339,61 @@ export type Database = {
           {
             foreignKeyName: "panhadores_user_id_fkey"
             columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      panhadores_bag_historico: {
+        Row: {
+          alterado_em: string
+          alterado_por: string | null
+          bag_anterior: string | null
+          bag_nova: string | null
+          empresa_id: string
+          id: string
+          observacao: string | null
+          panhador_id: string
+        }
+        Insert: {
+          alterado_em?: string
+          alterado_por?: string | null
+          bag_anterior?: string | null
+          bag_nova?: string | null
+          empresa_id: string
+          id?: string
+          observacao?: string | null
+          panhador_id: string
+        }
+        Update: {
+          alterado_em?: string
+          alterado_por?: string | null
+          bag_anterior?: string | null
+          bag_nova?: string | null
+          empresa_id?: string
+          id?: string
+          observacao?: string | null
+          panhador_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "panhadores_bag_historico_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "panhadores_bag_historico_panhador_id_fkey"
+            columns: ["panhador_id"]
+            isOneToOne: false
+            referencedRelation: "panhadores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "panhadores_bag_historico_alterado_por_fkey"
+            columns: ["alterado_por"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]

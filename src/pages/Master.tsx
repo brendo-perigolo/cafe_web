@@ -154,7 +154,7 @@ export default function Master() {
   const [linkedEmails, setLinkedEmails] = useState<string[]>([]);
   const [manageEmailsLoading, setManageEmailsLoading] = useState(false);
   const [newEmailsInput, setNewEmailsInput] = useState("");
-  const [profilesDirectory, setProfilesDirectory] = useState<Tables<"profiles">[]>([]);
+  const [profilesDirectory, setProfilesDirectory] = useState<Pick<Tables<"profiles">, "id" | "email" | "full_name">[]>([]);
   const [profilesLoading, setProfilesLoading] = useState(false);
   const [profileSearch, setProfileSearch] = useState("");
 

@@ -36,6 +36,66 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [selectedCompany, setSelectedCompany] = useState<Tables<"empresas"> | null>(null);
   const navigate = useNavigate();
 
+  const ensureProfileExists = async (currentUser: User) => {
+    try {
+      const { data: existing, error: selectError } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("id", currentUser.id)
+        .maybeSingle();
+
+      if (selectError) throw selectError;
+      if (existing?.id) return;
+
+      const email = currentUser.email;
+      if (!email) {
+        throw new Error("Usuário autenticado sem e-mail; não é possível criar profile.");
+      }
+
+      const rawUsername =
+        (currentUser.user_metadata?.username as string | undefined) ||
+        email.split("@")[0] ||
+        `user_${currentUser.id.slice(0, 8)}`;
+
+      const baseUsername = rawUsername
+        .toLowerCase()
+        .replace(/[^a-z0-9_\.\-]/g, "_")
+        .slice(0, 32) || `user_${currentUser.id.slice(0, 8)}`;
+
+      const fullName =
+        (currentUser.user_metadata?.full_name as string | undefined) ||
+        baseUsername;
+
+      let username = baseUsername;
+
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const { error: insertError } = await supabase.from("profiles").insert({
+          id: currentUser.id,
+          email,
+          username,
+          full_name: fullName,
+        });
+
+        if (!insertError) return;
+
+        const isUsernameConflict =
+          (insertError as { code?: string; message?: string }).code === "23505" ||
+          (insertError as { message?: string }).message?.toLowerCase().includes("profiles_username") ||
+          (insertError as { message?: string }).message?.toLowerCase().includes("duplicate") ||
+          false;
+
+        if (isUsernameConflict && attempt < 2) {
+          username = `${baseUsername}_${Math.random().toString(16).slice(2, 6)}`;
+          continue;
+        }
+
+        throw insertError;
+      }
+    } catch (error) {
+      console.error("Falha ao garantir profile do usuário:", error);
+    }
+  };
+
   const resetCompanies = () => {
     setCompanies([]);
     setSelectedCompany(null);
@@ -119,7 +179,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     if (user) {
-      loadCompanies(user.id, user.email);
+      (async () => {
+        await ensureProfileExists(user);
+        await loadCompanies(user.id, user.email);
+      })();
     } else {
       resetCompanies();
     }

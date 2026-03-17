@@ -1,4 +1,4 @@
-import { Coffee, LogOut, Users, Plus, BarChart3, Building2, RefreshCcw } from "lucide-react";
+import { Coffee, LogOut, Users, Plus, BarChart3, Building2, RefreshCcw, Settings } from "lucide-react";
 import { Button } from "./ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { MASTER_EMAIL } from "@/constants/master";
@@ -46,6 +46,13 @@ export const Navbar = () => {
             onClick={() => navigate("/panhadores")}
           >
             <Users className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={isActive("/configuracoes") ? "default" : "ghost"}
+            size="sm"
+            onClick={() => navigate("/configuracoes")}
+          >
+            <Settings className="h-4 w-4" />
           </Button>
           {isMaster && (
             <Button

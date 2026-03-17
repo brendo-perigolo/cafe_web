@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
-import { RefreshCw, Package, Coins, AlertCircle, Pencil, Trash2, Plus } from "lucide-react";
+import { RefreshCw, Package, Coins, AlertCircle, Pencil, Trash2, Plus, Check, ChevronsUpDown } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,17 +26,20 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
 import { LancamentoDialog } from "@/components/LancamentoDialog";
+import { cn } from "@/lib/utils";
 
 interface Lancamento {
   id: string;
   codigo: string;
   peso_kg: number;
+  quantidade_balaios: number | null;
   valor_total: number | null;
   data_colheita: string;
   numero_bag: string | null;
   panhador: string;
   panhador_id: string;
   preco_por_kg: number | null;
+  pago_em: string | null;
 }
 
 interface PanhadorOption {
@@ -61,6 +67,8 @@ export default function Movimentacoes() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [panhadores, setPanhadores] = useState<PanhadorOption[]>([]);
+  const [panhadorFilterId, setPanhadorFilterId] = useState<string>("todos");
+  const [panhadorFilterOpen, setPanhadorFilterOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Lancamento | null>(null);
   const [editForm, setEditForm] = useState({
@@ -74,10 +82,42 @@ export default function Movimentacoes() {
   const [deleteTarget, setDeleteTarget] = useState<Lancamento | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [registerDialogOpen, setRegisterDialogOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
+  const [kgPorBalaio, setKgPorBalaio] = useState<number | null>(null);
+  const [confirmPagamentoOpen, setConfirmPagamentoOpen] = useState(false);
 
   useEffect(() => {
     loadLancamentos();
     loadPanhadores();
+  }, [user, selectedCompany?.id]);
+
+  useEffect(() => {
+    setPanhadorFilterId("todos");
+  }, [selectedCompany?.id]);
+
+  useEffect(() => {
+    const loadConfig = async () => {
+      if (!user || !selectedCompany) {
+        setKgPorBalaio(null);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("empresas_config")
+        .select("kg_por_balaio")
+        .eq("empresa_id", selectedCompany.id)
+        .maybeSingle();
+
+      if (error) {
+        console.error("Erro ao carregar configuração do balaio:", error);
+        setKgPorBalaio(null);
+        return;
+      }
+
+      setKgPorBalaio(data?.kg_por_balaio != null ? Number(data.kg_por_balaio) : null);
+    };
+
+    loadConfig();
   }, [user, selectedCompany?.id]);
 
   useEffect(() => {
@@ -103,7 +143,9 @@ export default function Movimentacoes() {
 
     const { data, error } = await supabase
       .from("colheitas")
-      .select("id, codigo, peso_kg, preco_por_kg, valor_total, data_colheita, numero_bag, panhador_id, panhadores(nome)")
+      .select(
+        "id, codigo, peso_kg, preco_por_kg, valor_total, data_colheita, numero_bag, panhador_id, quantidade_balaios, pago_em, panhadores(nome)",
+      )
       .eq("empresa_id", selectedCompany.id)
       .order("data_colheita", { ascending: false })
       .limit(200);
@@ -123,12 +165,14 @@ export default function Movimentacoes() {
       id: item.id,
       codigo: item.codigo ?? "-",
       peso_kg: Number(item.peso_kg) || 0,
+      quantidade_balaios: (item as { quantidade_balaios?: number | null }).quantidade_balaios != null ? Number((item as { quantidade_balaios?: number | null }).quantidade_balaios) : null,
       preco_por_kg: item.preco_por_kg != null ? Number(item.preco_por_kg) : null,
       valor_total: item.valor_total != null ? Number(item.valor_total) : null,
       data_colheita: item.data_colheita,
       numero_bag: item.numero_bag,
       panhador: (item.panhadores as { nome?: string } | null)?.nome ?? "-",
       panhador_id: item.panhador_id,
+      pago_em: (item as { pago_em?: string | null }).pago_em ?? null,
     }));
 
     setLancamentos(normalized);
@@ -169,6 +213,8 @@ export default function Movimentacoes() {
       if (start && itemDate < start) return false;
       if (end && itemDate > end) return false;
 
+      if (panhadorFilterId !== "todos" && item.panhador_id !== panhadorFilterId) return false;
+
       const matchesStatus =
         statusFilter === "todos"
           ? true
@@ -186,11 +232,320 @@ export default function Movimentacoes() {
       const dataMatch = dateFormatter.format(new Date(item.data_colheita)).includes(term);
       return codigoMatch || panhadorMatch || bagMatch || dataMatch;
     });
-  }, [lancamentos, filter, statusFilter, startDate, endDate]);
+  }, [lancamentos, filter, statusFilter, panhadorFilterId, startDate, endDate]);
+
+  const getBalaiosForLancamento = (item: Lancamento) => {
+    if (item.quantidade_balaios != null) return item.quantidade_balaios;
+    if (kgPorBalaio == null || kgPorBalaio <= 0) return null;
+    return Number((item.peso_kg / kgPorBalaio).toFixed(4));
+  };
+
+  const selectedLancamentos = useMemo(
+    () => filteredLancamentos.filter((item) => Boolean(selectedIds[item.id])),
+    [filteredLancamentos, selectedIds],
+  );
+
+  const selectedTotals = useMemo(() => {
+    const totalKg = selectedLancamentos.reduce((sum, item) => sum + item.peso_kg, 0);
+    const totalBalaios = selectedLancamentos.reduce((sum, item) => sum + (getBalaiosForLancamento(item) ?? 0), 0);
+    const totalValor = selectedLancamentos.reduce((sum, item) => sum + (item.valor_total ?? 0), 0);
+    const pendentesSelected = selectedLancamentos.filter((item) => item.valor_total == null).length;
+    const jaPagos = selectedLancamentos.filter((item) => item.pago_em != null).length;
+    return { totalKg, totalBalaios, totalValor, pendentesSelected, jaPagos };
+  }, [selectedLancamentos, kgPorBalaio]);
+
+  const filteredTotals = useMemo(() => {
+    const totalKg = filteredLancamentos.reduce((sum, item) => sum + item.peso_kg, 0);
+    const totalBalaios = filteredLancamentos.reduce((sum, item) => sum + (getBalaiosForLancamento(item) ?? 0), 0);
+    const pagosCount = filteredLancamentos.filter((item) => item.pago_em != null).length;
+    const valorPago = filteredLancamentos.reduce(
+      (sum, item) => sum + (item.pago_em != null ? (item.valor_total ?? 0) : 0),
+      0,
+    );
+    return { totalKg, totalBalaios, pagosCount, valorPago };
+  }, [filteredLancamentos, kgPorBalaio]);
+
+  const allVisibleSelected =
+    filteredLancamentos.length > 0 && filteredLancamentos.every((item) => Boolean(selectedIds[item.id]));
+  const someVisibleSelected = filteredLancamentos.some((item) => Boolean(selectedIds[item.id]));
+
+  const toggleSelectAllVisible = (checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = { ...prev };
+      for (const item of filteredLancamentos) {
+        next[item.id] = checked;
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectOne = (id: string, checked: boolean) => {
+    setSelectedIds((prev) => ({ ...prev, [id]: checked }));
+  };
+
+  const buildPrintableHtml = (mode: "relatorio" | "comprovante", lote?: string, pagoEm?: string) => {
+    const title = mode === "relatorio" ? "Relatório de Colheitas" : "Comprovante de Pagamento";
+    const companyName = selectedCompany?.nome ?? "-";
+    const emittedAt = new Date().toLocaleString("pt-BR");
+
+    const formatDateFromInput = (value: string) => {
+      if (!value) return "";
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? value : dateFormatter.format(d);
+    };
+
+    const periodoLabel = startDate && endDate
+      ? `${formatDateFromInput(startDate)} até ${formatDateFromInput(endDate)}`
+      : startDate
+        ? `A partir de ${formatDateFromInput(startDate)}`
+        : endDate
+          ? `Até ${formatDateFromInput(endDate)}`
+          : "Todos";
+
+    const panhadorLabel =
+      panhadorFilterId === "todos"
+        ? "Todos"
+        : panhadores.find((p) => p.id === panhadorFilterId)?.nome ?? "-";
+
+    const resumo = (() => {
+      const totalKg = selectedLancamentos.reduce((sum, it) => sum + it.peso_kg, 0);
+      const totalBalaios = selectedLancamentos.reduce((sum, it) => sum + (getBalaiosForLancamento(it) ?? 0), 0);
+      const totalValor = selectedLancamentos.reduce((sum, it) => sum + (it.valor_total ?? 0), 0);
+      const pendentes = selectedLancamentos.filter((it) => it.valor_total == null).length;
+      const pagos = selectedLancamentos.filter((it) => it.pago_em != null).length;
+      const valorPago = selectedLancamentos.reduce((sum, it) => sum + (it.pago_em != null ? (it.valor_total ?? 0) : 0), 0);
+      return { totalKg, totalBalaios, totalValor, pendentes, pagos, valorPago };
+    })();
+
+    const groups = new Map<string, { panhador: string; items: Lancamento[] }>();
+    for (const item of selectedLancamentos) {
+      const key = item.panhador_id;
+      const existing = groups.get(key);
+      if (existing) existing.items.push(item);
+      else groups.set(key, { panhador: item.panhador, items: [item] });
+    }
+
+    const tableRows = Array.from(groups.values())
+      .sort((a, b) => a.panhador.localeCompare(b.panhador))
+      .map((group) => {
+        const itemsSorted = group.items
+          .slice()
+          .sort((a, b) => new Date(a.data_colheita).getTime() - new Date(b.data_colheita).getTime());
+
+        const totalKg = itemsSorted.reduce((sum, it) => sum + it.peso_kg, 0);
+        const totalBalaios = itemsSorted.reduce((sum, it) => sum + (getBalaiosForLancamento(it) ?? 0), 0);
+        const totalValor = itemsSorted.reduce((sum, it) => sum + (it.valor_total ?? 0), 0);
+
+        const rows = itemsSorted
+          .map((it) => {
+            const balaios = getBalaiosForLancamento(it);
+            const valorCell =
+              it.valor_total != null
+                ? currencyFormatter.format(it.valor_total)
+                : '<span class="pending">Pendente</span>';
+            return `
+              <tr>
+                <td>#${it.codigo}</td>
+                <td>${dateFormatter.format(new Date(it.data_colheita))}</td>
+                <td>${it.numero_bag ?? "-"}</td>
+                <td class="num">${it.peso_kg.toFixed(2)}</td>
+                <td class="num">${balaios != null ? balaios.toFixed(2) : "-"}</td>
+                <td class="num">${valorCell}</td>
+              </tr>
+            `;
+          })
+          .join("");
+
+        return `
+          <tr class="group-row">
+            <td colspan="6">
+              <div class="group-title">${group.panhador}</div>
+              <div class="group-sub">${totalKg.toFixed(2)} kg · ${totalBalaios.toFixed(2)} balaios · ${currencyFormatter.format(totalValor)}</div>
+            </td>
+          </tr>
+          ${rows}
+        `;
+      })
+      .join("");
+
+    const metaRows = [
+      `<div><strong>Empresa:</strong> ${companyName}</div>`,
+      `<div><strong>Período:</strong> ${periodoLabel}</div>`,
+      `<div><strong>Panhador:</strong> ${panhadorLabel}</div>`,
+      `<div><strong>Gerado em:</strong> ${emittedAt}</div>`,
+      lote ? `<div><strong>Lote:</strong> ${lote}</div>` : "",
+      pagoEm ? `<div><strong>Pagamento em:</strong> ${pagoEm}</div>` : "",
+    ]
+      .filter(Boolean)
+      .join("");
+
+    return `
+      <!doctype html>
+      <html lang="pt-BR">
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <title>${title}</title>
+          <style>
+            body { font-family: Arial, Helvetica, sans-serif; margin: 24px; color: #0f172a; }
+            h1 { margin: 0; font-size: 20px; }
+            .top { border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; margin-bottom: 14px; background: #f8fafc; }
+            .meta { font-size: 12px; color: #334155; display: grid; gap: 4px; margin-top: 8px; }
+            .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+            .kpi { background: white; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px; }
+            .kpi .label { font-size: 11px; color: #64748b; }
+            .kpi .value { font-size: 14px; font-weight: 700; margin-top: 2px; }
+            table { width: 100%; border-collapse: collapse; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+            thead th { background: #f1f5f9; text-align: left; padding: 8px; font-size: 12px; color: #334155; border-bottom: 1px solid #e2e8f0; }
+            tbody td { padding: 8px; border-bottom: 1px solid #eef2f7; font-size: 12px; }
+            .num { text-align: right; white-space: nowrap; }
+            .group-row td { background: #ffffff; border-bottom: 1px solid #e2e8f0; padding: 10px 8px; }
+            .group-title { font-size: 13px; font-weight: 700; }
+            .group-sub { font-size: 11px; color: #64748b; margin-top: 2px; }
+            .pending { color: #b45309; font-weight: 700; }
+            .footer { margin-top: 16px; font-size: 11px; color: #64748b; }
+            @media (max-width: 720px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+            @media print { body { margin: 10mm; } }
+          </style>
+        </head>
+        <body>
+          <div class="top">
+            <h1>${title}</h1>
+            <div class="meta">${metaRows}</div>
+            <div class="kpis">
+              <div class="kpi"><div class="label">Itens</div><div class="value">${selectedLancamentos.length}</div></div>
+              <div class="kpi"><div class="label">Total kg</div><div class="value">${resumo.totalKg.toFixed(2)} kg</div></div>
+              <div class="kpi"><div class="label">Total balaios</div><div class="value">${resumo.totalBalaios.toFixed(2)}</div></div>
+              <div class="kpi"><div class="label">${mode === "comprovante" ? "Valor pago" : "Valor"}</div><div class="value">${currencyFormatter.format(mode === "comprovante" ? resumo.valorPago : resumo.totalValor)}</div></div>
+            </div>
+            ${resumo.pendentes > 0 ? `<div style="margin-top:8px; font-size:12px; color:#b45309;"><strong>Atenção:</strong> ${resumo.pendentes} pendente(s) sem valor.</div>` : ""}
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 14%">Código</th>
+                <th style="width: 16%">Data</th>
+                <th>Bag</th>
+                <th class="num" style="width: 14%">Kg</th>
+                <th class="num" style="width: 14%">Balaios</th>
+                <th class="num" style="width: 18%">Valor</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+            </tbody>
+          </table>
+          <div class="footer">Assinatura: ________________________________</div>
+        </body>
+      </html>
+    `;
+  };
+
+  const openPrint = (mode: "relatorio" | "comprovante", lote?: string, pagoEm?: string) => {
+    if (selectedLancamentos.length === 0) {
+      toast({
+        title: "Selecione movimentações",
+        description: "Marque uma ou mais linhas para gerar o documento.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const html = buildPrintableHtml(mode, lote, pagoEm);
+    const w = window.open("", "_blank");
+    if (!w) {
+      toast({ title: "Popup bloqueado", description: "Permita popups para gerar o PDF (imprimir).", variant: "destructive" });
+      return;
+    }
+
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => w.print(), 250);
+  };
+
+  const handleConfirmPagamento = async () => {
+    if (!user || !selectedCompany) return;
+    if (selectedLancamentos.length === 0) {
+      toast({ title: "Selecione movimentações", description: "Marque uma ou mais linhas para pagar.", variant: "destructive" });
+      return;
+    }
+
+    if (selectedTotals.pendentesSelected > 0) {
+      toast({
+        title: "Há pendentes",
+        description: "Existem itens sem valor fechado. Defina o preço/valor antes de confirmar pagamento.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const pagoEmIso = new Date().toISOString();
+    const lote = `PG-${Date.now().toString(36).toUpperCase()}`;
+
+    try {
+      const historyPayload = selectedLancamentos.map((it) => ({
+        colheita_id: it.id,
+        empresa_id: selectedCompany.id,
+        user_id: user.id ?? null,
+        dados: {
+          acao: "pagamento_confirmado",
+          pagamento_lote: lote,
+          pago_em: pagoEmIso,
+          panhador_id: it.panhador_id,
+          panhador_nome: it.panhador,
+          peso_kg: it.peso_kg,
+          quantidade_balaios: getBalaiosForLancamento(it),
+          preco_por_kg: it.preco_por_kg,
+          valor_total: it.valor_total,
+          numero_bag: it.numero_bag,
+          data_colheita: it.data_colheita,
+          responsavel_email: user.email,
+        },
+      }));
+
+      const { error: historyError } = await supabase.from("colheitas_historico").insert(historyPayload);
+      if (historyError) throw historyError;
+
+      const ids = selectedLancamentos.map((it) => it.id);
+      const { error } = await supabase
+        .from("colheitas")
+        .update({
+          pago_em: pagoEmIso,
+          pago_por: user.id,
+          pagamento_lote: lote,
+          updated_at: new Date().toISOString(),
+        })
+        .in("id", ids)
+        .eq("empresa_id", selectedCompany.id);
+
+      if (error) throw error;
+
+      toast({ title: "Pagamento confirmado", description: `Lote ${lote} registrado.` });
+      setConfirmPagamentoOpen(false);
+      openPrint("comprovante", lote, new Date(pagoEmIso).toLocaleString("pt-BR"));
+      setSelectedIds({});
+      await loadLancamentos();
+    } catch (err) {
+      console.error("Erro ao confirmar pagamento:", err);
+      const message =
+        typeof err === "object" && err && "message" in err ? String((err as { message?: unknown }).message) : "Tente novamente";
+      toast({ title: "Erro ao pagar", description: message, variant: "destructive" });
+    }
+  };
 
   const totalPeso = useMemo(() => filteredLancamentos.reduce((sum, item) => sum + item.peso_kg, 0), [filteredLancamentos]);
+  const totalBalaios = useMemo(
+    () => filteredLancamentos.reduce((sum, item) => sum + (getBalaiosForLancamento(item) ?? 0), 0),
+    [filteredLancamentos, kgPorBalaio],
+  );
   const totalValorFechado = useMemo(
     () => filteredLancamentos.reduce((sum, item) => sum + (item.valor_total ?? 0), 0),
+    [filteredLancamentos],
+  );
+  const totalPago = useMemo(
+    () => filteredLancamentos.reduce((sum, item) => sum + (item.pago_em != null ? (item.valor_total ?? 0) : 0), 0),
     [filteredLancamentos],
   );
   const pendentes = useMemo(() => filteredLancamentos.filter((item) => item.valor_total == null).length, [filteredLancamentos]);
@@ -314,7 +669,7 @@ export default function Movimentacoes() {
           </Button>
         </div>
 
-        <section className="grid gap-4 md:grid-cols-3">
+        <section className="grid gap-4 md:grid-cols-3 lg:grid-cols-5">
           <Card className="border border-slate-100 bg-white">
             <CardContent className="space-y-1 py-5">
               <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Volume total</p>
@@ -327,12 +682,32 @@ export default function Movimentacoes() {
           </Card>
           <Card className="border border-slate-100 bg-white">
             <CardContent className="space-y-1 py-5">
+              <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Total balaios</p>
+              <div className="flex items-end justify-between">
+                <p className="font-display text-3xl text-[hsl(196_65%_35%)]">{totalBalaios.toFixed(2)}</p>
+                <Package className="h-5 w-5 text-[hsl(196_65%_40%)]" />
+              </div>
+              <p className="text-xs text-muted-foreground">Estimado com kg por balaio configurado</p>
+            </CardContent>
+          </Card>
+          <Card className="border border-slate-100 bg-white">
+            <CardContent className="space-y-1 py-5">
               <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Valor fechado</p>
               <div className="flex items-end justify-between">
                 <p className="font-display text-3xl text-[hsl(152_45%_32%)]">{currencyFormatter.format(totalValorFechado)}</p>
                 <Coins className="h-5 w-5 text-[hsl(152_45%_40%)]" />
               </div>
               <p className="text-xs text-muted-foreground">Considera lançamentos com valor informado</p>
+            </CardContent>
+          </Card>
+          <Card className="border border-slate-100 bg-white">
+            <CardContent className="space-y-1 py-5">
+              <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Total pago</p>
+              <div className="flex items-end justify-between">
+                <p className="font-display text-3xl text-[hsl(152_45%_32%)]">{currencyFormatter.format(totalPago)}</p>
+                <Coins className="h-5 w-5 text-[hsl(152_45%_40%)]" />
+              </div>
+              <p className="text-xs text-muted-foreground">Soma apenas itens marcados como pagos</p>
             </CardContent>
           </Card>
           <Card className="border border-slate-100 bg-white">
@@ -355,13 +730,28 @@ export default function Movimentacoes() {
                 <CardDescription>Últimos lançamentos registrados para a empresa atual</CardDescription>
               </div>
               <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  className="rounded-full"
+                  onClick={() => openPrint("relatorio")}
+                  disabled={selectedLancamentos.length === 0}
+                >
+                  Gerar relatório
+                </Button>
+                <Button
+                  className="rounded-full"
+                  onClick={() => setConfirmPagamentoOpen(true)}
+                  disabled={selectedLancamentos.length === 0}
+                >
+                  Realizar pagamento
+                </Button>
                 <Button variant="outline" className="rounded-full" onClick={() => setRegisterDialogOpen(true)}>
                   <Plus className="mr-2 h-4 w-4" />
                   Nova movimentação
                 </Button>
               </div>
             </div>
-            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5">
               <Input
                 placeholder="Buscar por código, panhador ou bag"
                 value={filter}
@@ -380,6 +770,64 @@ export default function Movimentacoes() {
                   <SelectItem value="pendentes">Pendentes</SelectItem>
                 </SelectContent>
               </Select>
+              <Popover open={panhadorFilterOpen} onOpenChange={setPanhadorFilterOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={panhadorFilterOpen}
+                    className="w-full justify-between"
+                  >
+                    {panhadorFilterId === "todos"
+                      ? "Todos os panhadores"
+                      : panhadores.find((p) => p.id === panhadorFilterId)?.nome ?? "Filtrar por panhador"}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Digite o nome do panhador..." />
+                    <CommandList>
+                      <CommandEmpty>Nenhum panhador encontrado.</CommandEmpty>
+                      <CommandGroup>
+                        <CommandItem
+                          value="Todos os panhadores"
+                          onSelect={() => {
+                            setPanhadorFilterId("todos");
+                            setPanhadorFilterOpen(false);
+                          }}
+                        >
+                          <Check
+                            className={cn(
+                              "mr-2 h-4 w-4",
+                              panhadorFilterId === "todos" ? "opacity-100" : "opacity-0",
+                            )}
+                          />
+                          Todos os panhadores
+                        </CommandItem>
+                        {panhadores.map((panhador) => (
+                          <CommandItem
+                            key={panhador.id}
+                            value={panhador.nome}
+                            onSelect={() => {
+                              setPanhadorFilterId(panhador.id);
+                              setPanhadorFilterOpen(false);
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                "mr-2 h-4 w-4",
+                                panhadorFilterId === panhador.id ? "opacity-100" : "opacity-0",
+                              )}
+                            />
+                            {panhador.nome}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
               <Input
                 type="date"
                 value={startDate}
@@ -395,15 +843,47 @@ export default function Movimentacoes() {
             </div>
           </CardHeader>
           <CardContent>
+            {selectedLancamentos.length > 0 && (
+              <div className="mb-4 flex flex-col gap-2 rounded-2xl border border-slate-100 bg-slate-50 p-3 md:flex-row md:items-center md:justify-between">
+                <div className="text-sm">
+                  <strong>{selectedLancamentos.length}</strong> selecionado(s) · {selectedTotals.totalKg.toFixed(2)} kg · {selectedTotals.totalBalaios.toFixed(2)} balaios · {currencyFormatter.format(selectedTotals.totalValor)}
+                  {(selectedTotals.pendentesSelected > 0 || selectedTotals.jaPagos > 0) && (
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {selectedTotals.pendentesSelected > 0 ? `${selectedTotals.pendentesSelected} pendente(s)` : ""}
+                      {selectedTotals.pendentesSelected > 0 && selectedTotals.jaPagos > 0 ? " · " : ""}
+                      {selectedTotals.jaPagos > 0 ? `${selectedTotals.jaPagos} já pago(s)` : ""}
+                    </span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" className="rounded-full" onClick={() => openPrint("relatorio")}>
+                    Relatório
+                  </Button>
+                  <Button size="sm" className="rounded-full" onClick={() => setConfirmPagamentoOpen(true)}>
+                    Confirmar
+                  </Button>
+                </div>
+              </div>
+            )}
             <div className="overflow-x-auto rounded-2xl border border-slate-100">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-slate-50/80">
+                    <TableHead className="w-10">
+                      <div className="flex items-center justify-center">
+                        <Checkbox
+                          checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
+                          onCheckedChange={(value) => toggleSelectAllVisible(Boolean(value))}
+                          aria-label="Selecionar todos"
+                        />
+                      </div>
+                    </TableHead>
                     <TableHead>Código</TableHead>
                     <TableHead>Data</TableHead>
                     <TableHead>Panhador</TableHead>
                     <TableHead>Bag</TableHead>
                     <TableHead className="text-right">Peso (kg)</TableHead>
+                    <TableHead className="text-right">Balaios</TableHead>
                     <TableHead className="text-right">Valor</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
@@ -412,13 +892,13 @@ export default function Movimentacoes() {
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="py-6 text-center text-sm text-muted-foreground">
+                      <TableCell colSpan={9} className="py-6 text-center text-sm text-muted-foreground">
                         Carregando movimentações...
                       </TableCell>
                     </TableRow>
                   ) : filteredLancamentos.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="py-6 text-center text-sm text-muted-foreground">
+                      <TableCell colSpan={9} className="py-6 text-center text-sm text-muted-foreground">
                         {lancamentos.length === 0
                           ? "Nenhum lançamento encontrado para esta empresa"
                           : "Nenhum resultado para o filtro aplicado"}
@@ -427,20 +907,37 @@ export default function Movimentacoes() {
                   ) : (
                     filteredLancamentos.map((item) => (
                       <TableRow key={item.id}>
+                        <TableCell>
+                          <div className="flex items-center justify-center">
+                            <Checkbox
+                              checked={Boolean(selectedIds[item.id])}
+                              onCheckedChange={(value) => toggleSelectOne(item.id, Boolean(value))}
+                              aria-label="Selecionar"
+                            />
+                          </div>
+                        </TableCell>
                         <TableCell className="font-mono text-sm">#{item.codigo}</TableCell>
                         <TableCell>{dateFormatter.format(new Date(item.data_colheita))}</TableCell>
                         <TableCell>{item.panhador}</TableCell>
                         <TableCell>{item.numero_bag ?? "-"}</TableCell>
                         <TableCell className="text-right font-semibold">{item.peso_kg.toFixed(2)} kg</TableCell>
                         <TableCell className="text-right">
+                          {(() => {
+                            const balaios = getBalaiosForLancamento(item);
+                            return balaios != null ? `${balaios.toFixed(2)}` : "-";
+                          })()}
+                        </TableCell>
+                        <TableCell className="text-right">
                           {item.valor_total != null ? currencyFormatter.format(item.valor_total) : "Pendente"}
                         </TableCell>
                         <TableCell>
-                          {item.valor_total != null ? (
-                            <Badge className="bg-emerald-100 text-emerald-700">Valor fechado</Badge>
-                          ) : (
-                            <Badge className="bg-amber-100 text-amber-700">Pendente</Badge>
-                          )}
+                          {item.pago_em != null ? (
+                            <Badge className="bg-slate-100 text-slate-700">Pago</Badge>
+                          ) : item.valor_total != null ? (
+                              <Badge className="bg-emerald-100 text-emerald-700">Valor fechado</Badge>
+                            ) : (
+                              <Badge className="bg-amber-100 text-amber-700">Pendente</Badge>
+                            )}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
@@ -574,6 +1071,26 @@ export default function Movimentacoes() {
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteLancamento} disabled={deleteLoading}>
               {deleteLoading ? "Removendo..." : "Remover"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmPagamentoOpen} onOpenChange={setConfirmPagamentoOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar pagamento</AlertDialogTitle>
+            <AlertDialogDescription>
+              Você está prestes a confirmar o pagamento de {selectedLancamentos.length} movimentação(ões).
+              {selectedTotals.pendentesSelected > 0
+                ? " Existem itens pendentes (sem valor) e eles não podem ser pagos."
+                : " Será gerado um comprovante (você poderá salvar como PDF)."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmPagamento} disabled={selectedTotals.pendentesSelected > 0}>
+              Confirmar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

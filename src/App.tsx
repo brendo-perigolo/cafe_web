@@ -13,6 +13,7 @@ import NotFound from "./pages/NotFound";
 import Master from "./pages/Master";
 import SelectEmpresa from "./pages/SelectEmpresa";
 import Movimentacoes from "./pages/Movimentacoes";
+import Configuracoes from "./pages/Configuracoes";
 
 const queryClient = new QueryClient();
 
@@ -55,6 +56,14 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <Movimentacoes />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/configuracoes"
+              element={
+                <ProtectedRoute>
+                  <Configuracoes />
                 </ProtectedRoute>
               }
             />

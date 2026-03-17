@@ -324,9 +324,6 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-[hsl(210_45%_97%)] text-foreground">
-      <div className="lg:hidden">
-        <Navbar />
-      </div>
       <div className="flex w-full">
         <aside className="sticky top-0 hidden min-h-screen w-64 flex-col bg-[hsl(26_25%_15%)] px-6 py-10 text-[hsl(38_45%_95%)] lg:flex">
           <div>
@@ -368,7 +365,9 @@ export default function Dashboard() {
             })}
           </nav>
         </aside>
-        <main className="flex-1 px-4 py-8 sm:px-6 lg:px-10">
+        <div className="min-w-0 flex-1">
+          <Navbar />
+          <main className="px-4 py-8 sm:px-6 lg:px-10">
           <section className="grid gap-6 lg:grid-cols-[2fr_1fr]">
             <Card className="rounded-3xl border border-slate-100 bg-white shadow-coffee">
               <CardHeader className="flex flex-col gap-4 pb-0">
@@ -633,7 +632,8 @@ export default function Dashboard() {
               </CardContent>
             </Card>
           </section>
-        </main>
+          </main>
+        </div>
       </div>
       <LancamentoDialog
         open={lancamentoDialogOpen}
