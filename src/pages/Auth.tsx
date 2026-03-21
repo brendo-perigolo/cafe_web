@@ -1,12 +1,13 @@
 import { useState } from "react";
-import { Coffee } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
 import { z } from "zod";
+import { getKeepConnectedPreference, setKeepConnectedPreference } from "@/lib/authStorage";
 
 const loginSchema = z.object({
   email: z.string().email("Informe um e-mail válido"),
@@ -24,6 +25,7 @@ export default function Auth() {
   const [username, setUsername] = useState("");
   const [fullName, setFullName] = useState("");
   const [password, setPassword] = useState("");
+  const [keepConnected, setKeepConnected] = useState(() => getKeepConnectedPreference());
   const [loading, setLoading] = useState(false);
   const { signIn, signUp } = useAuth();
 
@@ -34,6 +36,7 @@ export default function Auth() {
     try {
       if (isLogin) {
         const validated = loginSchema.parse({ email, password });
+        setKeepConnectedPreference(keepConnected);
         const { error } = await signIn(validated.email, validated.password);
         
         if (error) {
@@ -82,8 +85,8 @@ export default function Auth() {
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background to-muted p-4">
       <Card className="w-full max-w-md shadow-coffee">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary">
-            <Coffee className="h-8 w-8 text-primary-foreground" />
+          <div className="mx-auto mb-4 flex h-28 w-28 items-center justify-center rounded-2xl bg-background">
+            <img src="/logo_minha_cafe.png" alt="Logo" className="h-24 w-24 object-contain" />
           </div>
           <CardTitle className="text-2xl">Minha Colheita Café</CardTitle>
           <CardDescription>
@@ -143,6 +146,17 @@ export default function Auth() {
                 required
               />
             </div>
+
+            {isLogin && (
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="keepConnected"
+                  checked={keepConnected}
+                  onCheckedChange={(value) => setKeepConnected(Boolean(value))}
+                />
+                <Label htmlFor="keepConnected">Manter conectado</Label>
+              </div>
+            )}
 
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Carregando..." : isLogin ? "Entrar" : "Cadastrar"}

@@ -1,14 +1,15 @@
-import { Coffee, LogOut, Users, Plus, BarChart3, Building2, RefreshCcw, Settings } from "lucide-react";
+import { LogOut, Users, Plus, BarChart3, Building2, RefreshCcw, Settings } from "lucide-react";
 import { Button } from "./ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { MASTER_EMAIL } from "@/constants/master";
 import { useNavigate, useLocation } from "react-router-dom";
 
 export const Navbar = () => {
-  const { signOut, selectedCompany, user } = useAuth();
+  const { signOut, selectedCompany, user, companies } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const isMaster = user?.email?.toLowerCase() === MASTER_EMAIL.toLowerCase();
+  const canSwitchCompany = (companies?.length ?? 0) > 1;
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -17,7 +18,7 @@ export const Navbar = () => {
       <div className="container mx-auto flex items-center justify-between px-4 py-3">
         <div className="flex flex-col">
           <div className="flex items-center gap-2">
-            <Coffee className="h-6 w-6 text-primary" />
+            <img src="/logo_minha_cafe.png" alt="Logo" className="h-6 w-6 object-contain" />
             <span className="text-lg font-semibold text-foreground">Minha Colheita Café</span>
           </div>
           <span className="text-xs text-muted-foreground">
@@ -63,13 +64,15 @@ export const Navbar = () => {
               <Building2 className="h-4 w-4" />
             </Button>
           )}
-          <Button
-            variant={isActive("/selecionar-empresa") ? "default" : "ghost"}
-            size="sm"
-            onClick={() => navigate("/selecionar-empresa")}
-          >
-            <RefreshCcw className="h-4 w-4" />
-          </Button>
+          {canSwitchCompany && (
+            <Button
+              variant={isActive("/selecionar-empresa") ? "default" : "ghost"}
+              size="sm"
+              onClick={() => navigate("/selecionar-empresa")}
+            >
+              <RefreshCcw className="h-4 w-4" />
+            </Button>
+          )}
           <Button variant="ghost" size="sm" onClick={signOut}>
             <LogOut className="h-4 w-4" />
           </Button>

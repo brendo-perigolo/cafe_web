@@ -4,6 +4,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { Tables } from "@/integrations/supabase/types";
 import { MASTER_EMAIL } from "@/constants/master";
+import {
+  clearSupabaseAuthFromLocalStorage,
+  getKeepConnectedPreference,
+  getPreferredStorage,
+  removeFromBothStorages,
+} from "@/lib/authStorage";
 
 interface AuthContextType {
   user: User | null;
@@ -26,6 +32,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const COMPANY_STORAGE_KEY = "safra:selected_empresa";
+
+const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -100,7 +108,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setCompanies([]);
     setSelectedCompany(null);
     setCompaniesLoading(false);
-    localStorage.removeItem(COMPANY_STORAGE_KEY);
+    removeFromBothStorages(COMPANY_STORAGE_KEY);
   };
 
   const loadCompanies = async (userId: string, userEmail?: string | null) => {
@@ -134,20 +142,28 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       setCompanies(lista);
 
-      const storedId = localStorage.getItem(COMPANY_STORAGE_KEY);
-      const storedCompany = lista.find((empresa) => empresa.id === storedId);
+      const storage = getPreferredStorage();
+      const storedId = storage.getItem(COMPANY_STORAGE_KEY);
 
-      if (storedCompany) {
-        setSelectedCompany(storedCompany);
+      const currentSelectedId = selectedCompany?.id;
+      const preferredId = storedId ?? currentSelectedId;
+
+      const preferredCompany = preferredId
+        ? lista.find((empresa) => empresa.id === preferredId)
+        : undefined;
+
+      if (preferredCompany) {
+        setSelectedCompany(preferredCompany);
+        storage.setItem(COMPANY_STORAGE_KEY, preferredCompany.id);
         return;
       }
 
       if (lista.length === 1) {
         setSelectedCompany(lista[0]);
-        localStorage.setItem(COMPANY_STORAGE_KEY, lista[0].id);
+        storage.setItem(COMPANY_STORAGE_KEY, lista[0].id);
       } else {
         setSelectedCompany(null);
-        localStorage.removeItem(COMPANY_STORAGE_KEY);
+        storage.removeItem(COMPANY_STORAGE_KEY);
       }
     } catch (error) {
       console.error("Erro ao carregar empresas vinculadas:", error);
@@ -188,8 +204,62 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, [user]);
 
+  useEffect(() => {
+    if (!user) return;
+    if (getKeepConnectedPreference()) return;
+
+    let timeoutId: number | undefined;
+
+    const scheduleLogout = () => {
+      if (timeoutId != null) {
+        window.clearTimeout(timeoutId);
+      }
+
+      timeoutId = window.setTimeout(() => {
+        // Best-effort sign out on inactivity
+        supabase.auth
+          .signOut()
+          .catch(() => {
+            // ignore
+          })
+          .finally(() => {
+            resetCompanies();
+            navigate("/auth");
+          });
+      }, INACTIVITY_TIMEOUT_MS);
+    };
+
+    const handleActivity = () => scheduleLogout();
+
+    scheduleLogout();
+
+    const events: Array<keyof WindowEventMap> = [
+      "mousemove",
+      "mousedown",
+      "keydown",
+      "touchstart",
+      "scroll",
+      "focus",
+    ];
+
+    events.forEach((eventName) => window.addEventListener(eventName, handleActivity));
+
+    return () => {
+      if (timeoutId != null) {
+        window.clearTimeout(timeoutId);
+      }
+      events.forEach((eventName) => window.removeEventListener(eventName, handleActivity));
+    };
+  }, [user, navigate]);
+
   const signIn = async (email: string, password: string) => {
     try {
+      // Default behavior is NOT to keep the session across browser close.
+      // The UI can set this preference before calling signIn.
+      if (!getKeepConnectedPreference()) {
+        clearSupabaseAuthFromLocalStorage();
+      }
+
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -270,9 +340,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const company = companies.find((empresa) => empresa.id === empresaId) ?? null;
     setSelectedCompany(company);
     if (company) {
-      localStorage.setItem(COMPANY_STORAGE_KEY, company.id);
+      getPreferredStorage().setItem(COMPANY_STORAGE_KEY, company.id);
     } else {
-      localStorage.removeItem(COMPANY_STORAGE_KEY);
+      removeFromBothStorages(COMPANY_STORAGE_KEY);
     }
   };
 

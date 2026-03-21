@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Simple coffee-cup mark (placeholder). Replace this file with your real logo. -->
+  <path d="M7 8h10v7a4 4 0 0 1-4 4H11a4 4 0 0 1-4-4V8Z"/>
+  <path d="M17 10h1a3 3 0 0 1 0 6h-1"/>
+  <path d="M6 22h12"/>
+  <path d="M9 3c1 1 1 2 0 3"/>
+  <path d="M12 3c1 1 1 2 0 3"/>
+  <path d="M15 3c1 1 1 2 0 3"/>
+</svg>

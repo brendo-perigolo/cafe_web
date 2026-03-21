@@ -35,41 +35,43 @@ export const ProtectedRoute = ({ children, requiresCompany = true, requireMaster
 
   if (!requireMaster && requiresCompany && !selectedCompany) {
     return (
-      <Dialog open onOpenChange={() => {}}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Selecione a empresa</DialogTitle>
-            <DialogDescription>
-              Escolha a empresa para continuar. Você pode digitar para buscar.
-            </DialogDescription>
-          </DialogHeader>
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background to-muted p-4">
+        <Dialog open onOpenChange={() => {}}>
+          <DialogContent className="max-w-lg shadow-coffee" overlayClassName="bg-transparent" hideClose>
+            <DialogHeader>
+              <DialogTitle>Selecione a empresa</DialogTitle>
+              <DialogDescription>
+                Escolha a empresa para continuar. Você pode digitar para buscar.
+              </DialogDescription>
+            </DialogHeader>
 
-          {hasCompanies ? (
-            <Command>
-              <CommandInput placeholder="Digite o nome da empresa..." />
-              <CommandList>
-                <CommandEmpty>Nenhuma empresa encontrada.</CommandEmpty>
-                <CommandGroup>
-                  {companies.map((empresa) => (
-                    <CommandItem key={empresa.id} value={empresa.nome} onSelect={() => selectCompany(empresa.id)}>
-                      {empresa.nome}
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
-              </CommandList>
-            </Command>
-          ) : (
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Seu e-mail ainda não está vinculado a uma empresa.
-              </p>
-              <Button variant="outline" onClick={signOut}>
-                Voltar para login
-              </Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+            {hasCompanies ? (
+              <Command>
+                <CommandInput placeholder="Digite o nome da empresa..." />
+                <CommandList>
+                  <CommandEmpty>Nenhuma empresa encontrada.</CommandEmpty>
+                  <CommandGroup>
+                    {companies.map((empresa) => (
+                      <CommandItem key={empresa.id} value={empresa.nome} onSelect={() => selectCompany(empresa.id)}>
+                        {empresa.nome}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Seu e-mail ainda não está vinculado a uma empresa.
+                </p>
+                <Button variant="outline" onClick={signOut}>
+                  Voltar para login
+                </Button>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+      </div>
     );
   }
 

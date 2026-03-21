@@ -1,4 +1,4 @@
-import { useMemo, useState, FormEvent } from "react";
+import { useMemo, useState, FormEvent, useEffect } from "react";
 import { Building2, Factory, RefreshCw, Search, ShieldCheck, UserPlus, Loader2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Navbar } from "@/components/Navbar";
@@ -16,6 +16,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Tables, TablesInsert } from "@/integrations/supabase/types";
 import { toast } from "@/hooks/use-toast";
 import { MASTER_EMAIL } from "@/constants/master";
+import { useAuth } from "@/contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
 
 interface FormState {
   nome: string;
@@ -144,6 +146,25 @@ const fetchEmpresas = async (): Promise<Empresa[]> => {
 };
 
 export default function Master() {
+  const { user, loading } = useAuth();
+  const navigate = useNavigate();
+  const isMaster = user?.email?.toLowerCase() === MASTER_EMAIL.toLowerCase();
+
+  useEffect(() => {
+    if (loading) return;
+    if (!user) {
+      navigate("/auth", { replace: true });
+      return;
+    }
+    if (!isMaster) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [loading, user, isMaster, navigate]);
+
+  if (loading || !user || !isMaster) {
+    return null;
+  }
+
   const queryClient = useQueryClient();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [formState, setFormState] = useState<FormState>(initialFormState);
