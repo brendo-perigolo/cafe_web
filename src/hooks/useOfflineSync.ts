@@ -93,44 +93,94 @@ export const useOfflineSync = () => {
     const ops = getPendingPanhadorOps();
     if (ops.length === 0) return;
 
+    const stripUnknownBagFields = (payload: Record<string, unknown>) => {
+      const next = { ...payload };
+      delete next.bag_numero;
+      delete next.bag_semana;
+      delete next.bag_atualizado_em;
+      return next;
+    };
+
+    const getErrorCode = (err: unknown) => (err as { code?: string } | null)?.code;
+    const getErrorMessage = (err: unknown) =>
+      typeof err === "object" && err && "message" in err ? String((err as { message?: unknown }).message) : "";
+
+    const remaining: PendingPanhadorOp[] = [];
+
     for (const op of ops) {
       if (op.action === "insert") {
-        const { error } = await supabase.from("panhadores").insert(op.payload);
-        if (error) throw error;
+        try {
+          let payload = op.payload;
+          let { error } = await supabase.from("panhadores").insert(payload);
 
-        const bagNumero = typeof op.payload.bag_numero === "string" ? op.payload.bag_numero : null;
-        const panhadorId = typeof op.payload.id === "string" ? op.payload.id : null;
-        if (bagNumero && panhadorId) {
-          await supabase.from("panhadores_bag_historico").insert({
-            empresa_id: op.empresa_id,
-            panhador_id: panhadorId,
-            bag_anterior: null,
-            bag_nova: bagNumero,
-            alterado_por: user.id,
-            observacao: "Definição inicial (offline)",
-          });
+          if (error && getErrorCode(error) === "42703") {
+            // Colunas bag_* podem não existir (migration ainda não aplicada).
+            payload = stripUnknownBagFields(payload);
+            ({ error } = await supabase.from("panhadores").insert(payload));
+          }
+
+          if (error) throw error;
+
+          const bagNumero = typeof op.payload.bag_numero === "string" ? op.payload.bag_numero : null;
+          const panhadorId = typeof op.payload.id === "string" ? op.payload.id : null;
+          if (bagNumero && panhadorId) {
+            // Best-effort: tabela pode não existir em bancos antigos.
+            const hist = await supabase.from("panhadores_bag_historico").insert({
+              empresa_id: op.empresa_id,
+              panhador_id: panhadorId,
+              bag_anterior: null,
+              bag_nova: bagNumero,
+              alterado_por: user.id,
+              observacao: "Definição inicial (offline)",
+            });
+            if (hist.error && getErrorCode(hist.error) !== "42P01") {
+              console.error("Erro ao registrar histórico de bag:", hist.error);
+            }
+          }
+
+          continue;
+        } catch (error) {
+          console.error("Erro ao sincronizar panhador (insert):", error);
+          remaining.push(op);
+          continue;
         }
-
-        continue;
       }
 
       if (op.action === "update") {
         const id = typeof op.payload.id === "string" ? op.payload.id : null;
         if (!id) continue;
-        const { error } = await supabase.from("panhadores").update(op.payload).eq("id", id);
-        if (error) throw error;
-        continue;
+        try {
+          let payload = op.payload;
+          let { error } = await supabase.from("panhadores").update(payload).eq("id", id);
+
+          if (error && getErrorCode(error) === "42703") {
+            payload = stripUnknownBagFields(payload);
+            ({ error } = await supabase.from("panhadores").update(payload).eq("id", id));
+          }
+
+          if (error) throw error;
+          continue;
+        } catch (error) {
+          console.error("Erro ao sincronizar panhador (update):", error);
+          remaining.push(op);
+          continue;
+        }
       }
 
       if (op.action === "deactivate") {
         const id = typeof op.payload.id === "string" ? op.payload.id : null;
         if (!id) continue;
-        const { error } = await supabase.from("panhadores").update({ ativo: false }).eq("id", id);
-        if (error) throw error;
+        try {
+          const { error } = await supabase.from("panhadores").update({ ativo: false }).eq("id", id);
+          if (error) throw error;
+        } catch (error) {
+          console.error("Erro ao sincronizar panhador (deactivate):", error);
+          remaining.push(op);
+        }
       }
     }
 
-    setPendingPanhadorOps([]);
+    setPendingPanhadorOps(remaining);
   };
 
   const syncPendingData = async () => {
@@ -151,16 +201,20 @@ export const useOfflineSync = () => {
       await syncPendingPanhadores();
 
       // 2) Sincroniza colheitas
+      const sentIds = new Set<string>();
+
+      const getErrorCode = (err: unknown) => (err as { code?: string } | null)?.code;
+      const getErrorMessage = (err: unknown) =>
+        typeof err === "object" && err && "message" in err ? String((err as { message?: unknown }).message) : "";
+
       for (const colheita of pending) {
         const aparelhoToken = (colheita as unknown as { aparelho_token?: string }).aparelho_token || getDeviceToken();
         const ativo = await getAparelhoAtivo(colheita.empresa_id, aparelhoToken);
         const pendenteAparelho = ativo !== true;
 
-        const { error } = await supabase.from("colheitas").insert({
+        const basePayload: Record<string, unknown> = {
           peso_kg: colheita.peso_kg,
           preco_por_kg: colheita.preco_por_kg,
-          preco_por_balaio: colheita.preco_por_balaio ?? null,
-          kg_por_balaio_utilizado: colheita.kg_por_balaio_utilizado ?? null,
           valor_total: colheita.valor_total,
           panhador_id: colheita.panhador_id,
           user_id: user.id,
@@ -168,6 +222,12 @@ export const useOfflineSync = () => {
           empresa_id: colheita.empresa_id,
           numero_bag: colheita.numero_bag,
           sincronizado: true,
+        };
+
+        const extendedPayload: Record<string, unknown> = {
+          ...basePayload,
+          preco_por_balaio: colheita.preco_por_balaio ?? null,
+          kg_por_balaio_utilizado: colheita.kg_por_balaio_utilizado ?? null,
           mostrar_balaio_no_ticket: colheita.mostrar_balaio_no_ticket ?? false,
           aparelho_token: aparelhoToken,
           pendente_aparelho: pendenteAparelho,
@@ -175,21 +235,49 @@ export const useOfflineSync = () => {
             ? { propriedade_id: colheita.propriedade_id ?? null }
             : {}),
           ...(Object.prototype.hasOwnProperty.call(colheita, "lavoura_id") ? { lavoura_id: colheita.lavoura_id ?? null } : {}),
-        });
+        };
 
-        if (error) throw error;
+        try {
+          let { error } = await supabase.from("colheitas").insert(extendedPayload);
+
+          const code = error ? getErrorCode(error) : null;
+          const message = error ? getErrorMessage(error).toLowerCase() : "";
+
+          const looksLikeMissingColumn =
+            code === "42703" || message.includes("column") || message.includes("does not exist") || message.includes("aparelho");
+
+          if (error && looksLikeMissingColumn) {
+            // Banco antigo sem colunas novas: tenta com payload mínimo.
+            ({ error } = await supabase.from("colheitas").insert(basePayload));
+          }
+
+          if (error) throw error;
+          sentIds.add(colheita.id);
+        } catch (error) {
+          console.error("Erro ao sincronizar colheita:", error);
+          // mantém a colheita na fila para tentar novamente
+          continue;
+        }
       }
 
-      setPendingColheitas([]);
+      if (sentIds.size > 0) {
+        setPendingColheitas(pending.filter((c) => !sentIds.has(c.id)));
+      }
+
       toast({
         title: "Sincronização completa",
-        description: `${pendingPanhadores.length + pending.length} registro(s) enviado(s)`,
+        description: `${pendingPanhadores.length + pending.length} registro(s) processado(s)`,
       });
     } catch (error) {
       console.error("Erro ao sincronizar:", error);
+
+      const message =
+        typeof error === "object" && error && "message" in error ? String((error as { message?: unknown }).message) : "";
+      const code = typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code) : "";
+
       toast({
         title: "Erro na sincronização",
-        description: "Tentaremos novamente mais tarde",
+        description: code || message ? `(${code || "erro"}) ${message || "Tentaremos novamente mais tarde"}` : "Tentaremos novamente mais tarde",
         variant: "destructive",
       });
     } finally {
