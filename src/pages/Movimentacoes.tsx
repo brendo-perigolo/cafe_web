@@ -49,6 +49,10 @@ interface Lancamento {
   aparelho: string;
   aparelho_token: string | null;
   pendente_aparelho: boolean;
+  // Metadados do item offline (quando ainda não sincronizou)
+  offline_sync_attempts?: number;
+  offline_last_error?: string | null;
+  offline_last_error_at?: string | null;
 }
 
 interface PropriedadeOption {
@@ -113,6 +117,9 @@ export default function Movimentacoes() {
   const [kgPorBalaio, setKgPorBalaio] = useState<number | null>(null);
   const [confirmPagamentoOpen, setConfirmPagamentoOpen] = useState(false);
 
+  const [syncLogOpen, setSyncLogOpen] = useState(false);
+  const [syncLogTarget, setSyncLogTarget] = useState<Lancamento | null>(null);
+
   const isOffline = !navigator.onLine;
 
   const mergePendingLocal = (items: Lancamento[]) => {
@@ -127,6 +134,9 @@ export default function Movimentacoes() {
       .map((p) => ({
         id: p.id,
         codigo: `OFF-${p.id.slice(0, 4).toUpperCase()}`,
+        offline_sync_attempts: p.sync_attempts ?? 0,
+        offline_last_error: p.last_error ?? null,
+        offline_last_error_at: p.last_error_at ?? null,
         peso_kg: Number(p.peso_kg) || 0,
         quantidade_balaios: p.kg_por_balaio_utilizado
           ? Number((Number(p.peso_kg) / Number(p.kg_por_balaio_utilizado)).toFixed(4))
@@ -1239,7 +1249,31 @@ export default function Movimentacoes() {
                             />
                           </div>
                         </TableCell>
-                        <TableCell className="font-mono text-sm">#{item.codigo}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <div className="font-mono text-sm">#{item.codigo}</div>
+                            {item.codigo.startsWith("OFF-") && (
+                              <div className="flex items-center gap-2">
+                                <Badge className="bg-amber-100 text-amber-700">Pendente sync</Badge>
+                                {item.offline_last_error ? (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    onClick={() => {
+                                      setSyncLogTarget(item);
+                                      setSyncLogOpen(true);
+                                    }}
+                                    aria-label="Ver log de sincronização"
+                                    title="Ver log de sincronização"
+                                  >
+                                    <AlertCircle className="h-4 w-4 text-destructive" />
+                                  </Button>
+                                ) : null}
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell>{dateFormatter.format(new Date(item.data_colheita))}</TableCell>
                         <TableCell>{item.encarregado}</TableCell>
                         <TableCell>{item.aparelho}</TableCell>
@@ -1257,6 +1291,29 @@ export default function Movimentacoes() {
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-col gap-1">
+                            {item.codigo.startsWith("OFF-") && (
+                              <div className="flex items-center gap-2">
+                                <Badge className="bg-amber-100 text-amber-700">Pendente sync</Badge>
+                                {item.offline_last_error ? (
+                                  <>
+                                    <Badge className="bg-slate-100 text-destructive">Erro</Badge>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7"
+                                      onClick={() => {
+                                        setSyncLogTarget(item);
+                                        setSyncLogOpen(true);
+                                      }}
+                                      aria-label="Ver log de sincronização"
+                                      title="Ver log de sincronização"
+                                    >
+                                      <AlertCircle className="h-4 w-4 text-destructive" />
+                                    </Button>
+                                  </>
+                                ) : null}
+                              </div>
+                            )}
                             {item.pago_em != null ? (
                               <Badge className="bg-slate-100 text-slate-700">Pago</Badge>
                             ) : item.valor_total != null ? (
@@ -1450,6 +1507,63 @@ export default function Movimentacoes() {
               </div>
             </form>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={syncLogOpen}
+        onOpenChange={(open) => {
+          setSyncLogOpen(open);
+          if (!open) setSyncLogTarget(null);
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Log de sincronização</DialogTitle>
+            <DialogDescription>Motivo do erro ao tentar enviar ao Supabase</DialogDescription>
+          </DialogHeader>
+
+          {syncLogTarget ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label>Código</Label>
+                  <div className="text-sm font-mono">#{syncLogTarget.codigo}</div>
+                </div>
+                <div className="space-y-1">
+                  <Label>Tentativas</Label>
+                  <div className="text-sm">{syncLogTarget.offline_sync_attempts ?? 0}</div>
+                </div>
+                <div className="space-y-1">
+                  <Label>Último erro</Label>
+                  <div className="text-sm">
+                    {syncLogTarget.offline_last_error_at
+                      ? dateFormatter.format(new Date(syncLogTarget.offline_last_error_at))
+                      : "-"}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label>Panhador</Label>
+                  <div className="text-sm">{syncLogTarget.panhador}</div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Detalhes</Label>
+                <div className="max-h-56 overflow-auto rounded-md border bg-slate-50 p-3">
+                  <pre className="whitespace-pre-wrap text-xs leading-relaxed">
+                    {syncLogTarget.offline_last_error || "Sem detalhes de erro salvos."}
+                  </pre>
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <Button variant="outline" onClick={() => setSyncLogOpen(false)}>
+                  Fechar
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </DialogContent>
       </Dialog>
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>

@@ -37,6 +37,10 @@ export function removeKey(key: string) {
 
 export interface PendingColheitaLocal {
   id: string;
+  // Metadados de sincronização (opcionais para compatibilidade com itens antigos)
+  sync_attempts?: number;
+  last_error?: string | null;
+  last_error_at?: string | null;
   peso_kg: number;
   preco_por_kg: number | null;
   preco_por_balaio?: number | null;

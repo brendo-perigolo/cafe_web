@@ -61,6 +61,9 @@ export const useOfflineSync = () => {
     const newColheita: PendingColheita = {
       id: safeRandomUUID(),
       ...colheita,
+      sync_attempts: colheita.sync_attempts ?? 0,
+      last_error: colheita.last_error ?? null,
+      last_error_at: colheita.last_error_at ?? null,
     };
     pending.push(newColheita);
     setPendingColheitas(pending);
@@ -196,21 +199,45 @@ export const useOfflineSync = () => {
       return;
     }
 
+    const getErrorCode = (err: unknown) => (err as { code?: string } | null)?.code;
+    const getErrorMessage = (err: unknown) =>
+      typeof err === "object" && err && "message" in err ? String((err as { message?: unknown }).message) : "";
+    const getErrorDetails = (err: unknown) =>
+      typeof err === "object" && err && "details" in err ? String((err as { details?: unknown }).details) : "";
+
+    const formatSyncError = (err: unknown) => {
+      const code = getErrorCode(err);
+      const message = getErrorMessage(err);
+      const details = getErrorDetails(err);
+      const parts = [
+        code ? `code=${code}` : "",
+        message ? message.trim() : "",
+        details ? details.trim() : "",
+      ].filter(Boolean);
+      return parts.join(" | ") || "Erro desconhecido";
+    };
+
     try {
       // 1) Sincroniza panhadores primeiro (colheitas podem depender deles)
       await syncPendingPanhadores();
 
-      // 2) Sincroniza colheitas
-      const sentIds = new Set<string>();
+      const pendingPanhadoresAfter = getPendingPanhadorOps();
+      const panhadoresRemaining = pendingPanhadoresAfter.length;
+      const panhadoresProcessed = pendingPanhadores.length;
 
-      const getErrorCode = (err: unknown) => (err as { code?: string } | null)?.code;
-      const getErrorMessage = (err: unknown) =>
-        typeof err === "object" && err && "message" in err ? String((err as { message?: unknown }).message) : "";
+      // 2) Sincroniza colheitas
+      let colheitasSent = 0;
+      const remainingColheitas: PendingColheita[] = [];
 
       for (const colheita of pending) {
         const aparelhoToken = (colheita as unknown as { aparelho_token?: string }).aparelho_token || getDeviceToken();
-        const ativo = await getAparelhoAtivo(colheita.empresa_id, aparelhoToken);
-        const pendenteAparelho = ativo !== true;
+        let pendenteAparelho = true;
+        try {
+          const ativo = await getAparelhoAtivo(colheita.empresa_id, aparelhoToken);
+          pendenteAparelho = ativo !== true;
+        } catch {
+          pendenteAparelho = true;
+        }
 
         const basePayload: Record<string, unknown> = {
           peso_kg: colheita.peso_kg,
@@ -252,21 +279,46 @@ export const useOfflineSync = () => {
           }
 
           if (error) throw error;
-          sentIds.add(colheita.id);
+          colheitasSent += 1;
         } catch (error) {
           console.error("Erro ao sincronizar colheita:", error);
-          // mantém a colheita na fila para tentar novamente
+          const next: PendingColheita = {
+            ...colheita,
+            sync_attempts: (colheita.sync_attempts ?? 0) + 1,
+            last_error: formatSyncError(error),
+            last_error_at: new Date().toISOString(),
+          };
+          remainingColheitas.push(next);
           continue;
         }
       }
 
-      if (sentIds.size > 0) {
-        setPendingColheitas(pending.filter((c) => !sentIds.has(c.id)));
+      setPendingColheitas(remainingColheitas);
+
+      const totalBefore = pendingPanhadores.length + pending.length;
+      const remainingAfter = panhadoresRemaining + remainingColheitas.length;
+      const sentTotal = (panhadoresProcessed - panhadoresRemaining) + colheitasSent;
+
+      if (sentTotal > 0 && remainingAfter === 0) {
+        toast({
+          title: "Sincronização completa",
+          description: `${totalBefore} registro(s) sincronizado(s)`,
+        });
+        return;
+      }
+
+      if (sentTotal > 0 && remainingAfter > 0) {
+        toast({
+          title: "Sincronização parcial",
+          description: `${sentTotal} enviado(s), ${remainingAfter} pendente(s)`,
+        });
+        return;
       }
 
       toast({
-        title: "Sincronização completa",
-        description: `${pendingPanhadores.length + pending.length} registro(s) processado(s)`,
+        title: "Sincronização pendente",
+        description: `${remainingAfter} item(ns) ainda aguardando (veja o alerta para detalhes).`,
+        variant: "destructive",
       });
     } catch (error) {
       console.error("Erro ao sincronizar:", error);
