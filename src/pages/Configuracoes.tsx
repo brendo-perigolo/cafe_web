@@ -5,10 +5,23 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
-import { TablesInsert } from "@/integrations/supabase/types";
+import { cacheKey, readJson, writeJson } from "@/lib/offline";
+import { getDeviceLancamentoSettings, setDeviceLancamentoSettings } from "@/lib/deviceSettings";
+
+interface PropriedadeOption {
+  id: string;
+  nome: string | null;
+}
+
+interface LavouraOption {
+  id: string;
+  nome: string;
+  propriedade_id: string;
+}
 
 export default function Configuracoes() {
   const { user, selectedCompany } = useAuth();
@@ -16,41 +29,80 @@ export default function Configuracoes() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [kgPorBalaio, setKgPorBalaio] = useState<string>("");
   const [usarKgPorBalaioPadrao, setUsarKgPorBalaioPadrao] = useState(true);
-  const [kgPorLitro, setKgPorLitro] = useState<string>("");
+  const [kgPorLitro, setKgPorLitro] = useState<string>("1");
+  const [precoPorBalaioPadrao, setPrecoPorBalaioPadrao] = useState(false);
+
+  const [mostrarPropriedadeLavoura, setMostrarPropriedadeLavoura] = useState(true);
+  const [usarPropriedadeLavouraPadrao, setUsarPropriedadeLavouraPadrao] = useState(false);
+  const [propriedadePadraoId, setPropriedadePadraoId] = useState<string>("");
+  const [lavouraPadraoId, setLavouraPadraoId] = useState<string>("");
+  const [propriedades, setPropriedades] = useState<PropriedadeOption[]>([]);
+  const [lavouras, setLavouras] = useState<LavouraOption[]>([]);
 
   useEffect(() => {
     const load = async () => {
       if (!user || !selectedCompany) {
         setKgPorBalaio("");
-        setKgPorLitro("");
+        setKgPorLitro("1");
+        setUsarKgPorBalaioPadrao(true);
+        setPrecoPorBalaioPadrao(false);
+        setMostrarPropriedadeLavoura(true);
+        setUsarPropriedadeLavouraPadrao(false);
+        setPropriedadePadraoId("");
+        setLavouraPadraoId("");
+        setPropriedades([]);
+        setLavouras([]);
         setInitialLoading(false);
         return;
       }
 
       setInitialLoading(true);
-      const { data, error } = await supabase
-        .from("empresas_config")
-        .select("kg_por_balaio, usar_kg_por_balaio_padrao, kg_por_litro")
-        .eq("empresa_id", selectedCompany.id)
-        .maybeSingle();
 
-      if (error) {
-        console.error("Erro ao carregar configurações:", error);
-        toast({
-          title: "Erro",
-          description: "Não foi possível carregar as configurações.",
-          variant: "destructive",
-        });
-        setInitialLoading(false);
-        return;
+      const settings = getDeviceLancamentoSettings(selectedCompany.id);
+      setUsarKgPorBalaioPadrao(settings.usar_kg_por_balaio_padrao ?? true);
+      setKgPorBalaio(
+        settings.kg_por_balaio_padrao != null && Number.isFinite(Number(settings.kg_por_balaio_padrao))
+          ? String(Number(settings.kg_por_balaio_padrao))
+          : "",
+      );
+      setKgPorLitro(
+        settings.kg_por_litro != null && Number.isFinite(Number(settings.kg_por_litro)) && Number(settings.kg_por_litro) > 0
+          ? String(Number(settings.kg_por_litro))
+          : "1",
+      );
+      setPrecoPorBalaioPadrao(settings.preco_por_balaio_padrao ?? false);
+      setMostrarPropriedadeLavoura(settings.mostrar_propriedade_lavoura ?? true);
+      setUsarPropriedadeLavouraPadrao(settings.usar_propriedade_lavoura_padrao ?? false);
+      setPropriedadePadraoId(settings.propriedade_padrao_id ?? "");
+      setLavouraPadraoId(settings.lavoura_padrao_id ?? "");
+
+      const propsCache = cacheKey("propriedades_list", selectedCompany.id);
+      const lavCache = cacheKey("lavouras_list", selectedCompany.id);
+      const cachedProps = readJson<{ supported?: boolean; propriedades: PropriedadeOption[] } | null>(propsCache, null);
+      const cachedLavs = readJson<{ supported?: boolean; lavouras: LavouraOption[] } | null>(lavCache, null);
+      setPropriedades((cachedProps?.propriedades ?? []) as PropriedadeOption[]);
+      setLavouras((cachedLavs?.lavouras ?? []) as LavouraOption[]);
+
+      if (navigator.onLine) {
+        const { data: propsData } = await supabase
+          .from("propriedades")
+          .select("id, nome")
+          .eq("empresa_id", selectedCompany.id)
+          .order("nome", { ascending: true, nullsFirst: true });
+        const propsList = ((propsData as PropriedadeOption[] | null) ?? []).slice();
+        setPropriedades(propsList);
+        writeJson(propsCache, { cachedAt: new Date().toISOString(), supported: true, propriedades: propsList });
+
+        const { data: lavData } = await supabase
+          .from("lavouras")
+          .select("id, nome, propriedade_id")
+          .eq("empresa_id", selectedCompany.id)
+          .order("nome", { ascending: true });
+        const lavList = ((lavData as LavouraOption[] | null) ?? []).slice();
+        setLavouras(lavList);
+        writeJson(lavCache, { cachedAt: new Date().toISOString(), supported: true, lavouras: lavList });
       }
 
-      const value = data?.kg_por_balaio != null ? Number(data.kg_por_balaio) : null;
-      setKgPorBalaio(value != null ? String(value) : "");
-      setUsarKgPorBalaioPadrao(data?.usar_kg_por_balaio_padrao ?? true);
-
-      const litroValue = (data as { kg_por_litro?: number | null } | null)?.kg_por_litro;
-      setKgPorLitro(litroValue != null ? String(Number(litroValue)) : "");
       setInitialLoading(false);
     };
 
@@ -82,48 +134,52 @@ export default function Configuracoes() {
       });
       return;
     }
-    if (usarKgPorBalaioPadrao) {
-      if (parsed == null || !Number.isFinite(parsed) || parsed <= 0) {
-        toast({
-          title: "Valor inválido",
-          description: "Informe um peso do balaio maior que zero.",
-          variant: "destructive",
-        });
-        return;
-      }
-    } else if (parsed != null && (!Number.isFinite(parsed) || parsed <= 0)) {
+    if (parsed != null && (!Number.isFinite(parsed) || parsed <= 0)) {
       toast({
         title: "Valor inválido",
-        description: "Se informar o peso do balaio, ele deve ser maior que zero.",
+        description: "Se informar o kg médio do balaio, ele deve ser maior que zero.",
         variant: "destructive",
       });
       return;
     }
 
-    setLoading(true);
-    try {
-      const payload: TablesInsert<"empresas_config"> = {
-        empresa_id: selectedCompany.id,
-        usar_kg_por_balaio_padrao: usarKgPorBalaioPadrao,
-        kg_por_litro: parsedKgPorLitro,
-      };
-
-      if (usarKgPorBalaioPadrao) {
-        payload.kg_por_balaio = parsed;
-      } else if (parsed != null) {
-        // Opcional: permite deixar um valor salvo para quando o usuário voltar ao modo padrão.
-        payload.kg_por_balaio = parsed;
+    if (usarPropriedadeLavouraPadrao) {
+      if (!propriedadePadraoId) {
+        toast({
+          title: "Propriedade padrão",
+          description: "Selecione uma propriedade padrão.",
+          variant: "destructive",
+        });
+        return;
       }
 
-      const { error } = await supabase
-        .from("empresas_config")
-        .upsert(payload, { onConflict: "empresa_id" });
+      const lavsForProp = lavouras.filter((l) => l.propriedade_id === propriedadePadraoId);
+      if (lavsForProp.length > 0 && !lavouraPadraoId) {
+        toast({
+          title: "Lavoura padrão",
+          description: "Selecione uma lavoura padrão.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
 
-      if (error) throw error;
+    setLoading(true);
+    try {
+      setDeviceLancamentoSettings(selectedCompany.id, {
+        usar_kg_por_balaio_padrao: usarKgPorBalaioPadrao,
+        kg_por_balaio_padrao: parsed,
+        kg_por_litro: parsedKgPorLitro,
+        preco_por_balaio_padrao: precoPorBalaioPadrao,
+        mostrar_propriedade_lavoura: mostrarPropriedadeLavoura,
+        usar_propriedade_lavoura_padrao: usarPropriedadeLavouraPadrao,
+        propriedade_padrao_id: usarPropriedadeLavouraPadrao ? propriedadePadraoId : null,
+        lavoura_padrao_id: usarPropriedadeLavouraPadrao ? lavouraPadraoId : null,
+      });
 
       toast({
         title: "Configurações salvas",
-        description: "Configurações do balaio atualizadas.",
+        description: "Configurações do aparelho atualizadas.",
       });
     } catch (err) {
       console.error("Erro ao salvar configurações:", err);
@@ -137,6 +193,10 @@ export default function Configuracoes() {
     }
   };
 
+  const lavourasDaPropriedade = propriedadePadraoId
+    ? lavouras.filter((l) => l.propriedade_id === propriedadePadraoId)
+    : [];
+
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
@@ -145,9 +205,9 @@ export default function Configuracoes() {
 
         <Card className="shadow-coffee">
           <CardHeader>
-            <CardTitle>Padrões do Balaio</CardTitle>
+            <CardTitle>Configurações do Aparelho</CardTitle>
             <CardDescription>
-              Usado para calcular a média de balaios no lançamento de colheita.
+              Essas preferências ficam salvas localmente neste dispositivo.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -156,7 +216,7 @@ export default function Configuracoes() {
                 <div className="space-y-1">
                   <p className="text-sm font-medium">Usar kg/balaio padrão</p>
                   <p className="text-xs text-muted-foreground">
-                      Desative para exigir o peso médio do balaio em cada lançamento.
+                      Quando ativo, o lançamento começa com esse valor (mas você pode editar).
                   </p>
                 </div>
                 <Switch
@@ -167,7 +227,7 @@ export default function Configuracoes() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="kgPorBalaio">Peso do balaio (kg)</Label>
+                <Label htmlFor="kgPorBalaio">Kg médio do balaio (padrão)</Label>
                 <Input
                   id="kgPorBalaio"
                   type="number"
@@ -177,11 +237,11 @@ export default function Configuracoes() {
                   placeholder={initialLoading ? "Carregando..." : "0.00"}
                   disabled={initialLoading}
                 />
-                {!usarKgPorBalaioPadrao && (
+                {!usarKgPorBalaioPadrao ? (
                   <p className="text-xs text-muted-foreground">
-                    No modo manual, este valor não é usado automaticamente (você deve informar no lançamento).
+                    Quando desativado, o lançamento começa em 0 e o campo fica obrigatório.
                   </p>
-                )}
+                ) : null}
               </div>
 
               <div className="space-y-2">
@@ -200,6 +260,96 @@ export default function Configuracoes() {
                   Usado para estimar litros a partir do peso (litros = kg / kg/L).
                 </p>
               </div>
+
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Preço por balaio (padrão)</p>
+                  <p className="text-xs text-muted-foreground">Define o modo inicial do preço no lançamento.</p>
+                </div>
+                <Switch
+                  checked={precoPorBalaioPadrao}
+                  onCheckedChange={setPrecoPorBalaioPadrao}
+                  disabled={initialLoading}
+                />
+              </div>
+
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Mostrar propriedade e lavoura</p>
+                  <p className="text-xs text-muted-foreground">Exibe os campos no lançamento.</p>
+                </div>
+                <Switch
+                  checked={mostrarPropriedadeLavoura}
+                  onCheckedChange={setMostrarPropriedadeLavoura}
+                  disabled={initialLoading}
+                />
+              </div>
+
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Usar propriedade/lavoura padrão</p>
+                  <p className="text-xs text-muted-foreground">
+                    Se ativar, você escolhe o padrão para os próximos lançamentos.
+                  </p>
+                </div>
+                <Switch
+                  checked={usarPropriedadeLavouraPadrao}
+                  onCheckedChange={(next) => {
+                    setUsarPropriedadeLavouraPadrao(next);
+                    if (!next) {
+                      setPropriedadePadraoId("");
+                      setLavouraPadraoId("");
+                    }
+                  }}
+                  disabled={initialLoading}
+                />
+              </div>
+
+              {usarPropriedadeLavouraPadrao ? (
+                <>
+                  <div className="space-y-2">
+                    <Label>Propriedade padrão</Label>
+                    <Select
+                      value={propriedadePadraoId}
+                      onValueChange={(v) => {
+                        setPropriedadePadraoId(v);
+                        setLavouraPadraoId("");
+                      }}
+                      disabled={initialLoading}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={initialLoading ? "Carregando..." : "Selecione"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {propriedades.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {(p.nome ?? "Sem nome").trim() || "Sem nome"}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Se “Mostrar propriedade e lavoura” estiver desativado, o lançamento usa esse padrão.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Lavoura padrão</Label>
+                    <Select value={lavouraPadraoId} onValueChange={setLavouraPadraoId} disabled={initialLoading || !propriedadePadraoId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder={!propriedadePadraoId ? "Selecione a propriedade" : "Selecione"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {lavourasDaPropriedade.map((l) => (
+                          <SelectItem key={l.id} value={l.id}>
+                            {l.nome}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              ) : null}
 
               <div className="flex justify-end">
                 <Button type="submit" disabled={loading || initialLoading}>

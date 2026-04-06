@@ -11,12 +11,14 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { getDeviceToken } from "@/lib/device";
 import { getAparelhoAtivo } from "@/lib/aparelhos";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { useOfflineSync } from "@/hooks/useOfflineSync";
 import { cacheKey, readJson, writeJson } from "@/lib/offline";
+import { getDeviceLancamentoSettings } from "@/lib/deviceSettings";
 import { z } from "zod";
 import {
   AlertDialog,
@@ -102,8 +104,11 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
   const [usarBalaioNoTicket, setUsarBalaioNoTicket] = useState(false);
   const [precoPorBalaio, setPrecoPorBalaio] = useState(false);
   const [kgPorBalaioConfig, setKgPorBalaioConfig] = useState<number | null>(null);
-  const [usarKgPorBalaioPadrao, setUsarKgPorBalaioPadrao] = useState(true);
   const [kgPorBalaioManual, setKgPorBalaioManual] = useState("");
+  const [mostrarPropriedadeLavoura, setMostrarPropriedadeLavoura] = useState(true);
+  const [usarPropriedadeLavouraPadrao, setUsarPropriedadeLavouraPadrao] = useState(false);
+  const [propriedadePadraoId, setPropriedadePadraoId] = useState<string | null>(null);
+  const [lavouraPadraoId, setLavouraPadraoId] = useState<string | null>(null);
   const [panhadorOpen, setPanhadorOpen] = useState(false);
 
   useEffect(() => {
@@ -117,28 +122,29 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
     const loadConfig = async () => {
       if (!open || !user || !selectedCompany) {
         setKgPorBalaioConfig(null);
-        setUsarKgPorBalaioPadrao(true);
         setKgPorBalaioManual("");
+        setPrecoPorBalaio(false);
+        setMostrarPropriedadeLavoura(true);
+        setUsarPropriedadeLavouraPadrao(false);
+        setPropriedadePadraoId(null);
+        setLavouraPadraoId(null);
         return;
       }
 
-      const { data, error } = await supabase
-        .from("empresas_config")
-        .select("kg_por_balaio, usar_kg_por_balaio_padrao")
-        .eq("empresa_id", selectedCompany.id)
-        .maybeSingle();
+      const settings = getDeviceLancamentoSettings(selectedCompany.id);
+      const kgDefaultEnabled = settings.usar_kg_por_balaio_padrao ?? true;
+      const kgDefault =
+        settings.kg_por_balaio_padrao != null && Number.isFinite(Number(settings.kg_por_balaio_padrao))
+          ? Number(settings.kg_por_balaio_padrao)
+          : null;
+      setKgPorBalaioConfig(kgDefault);
+      setKgPorBalaioManual(kgDefaultEnabled && kgDefault != null && kgDefault > 0 ? String(kgDefault) : "");
+      setPrecoPorBalaio(settings.preco_por_balaio_padrao ?? false);
 
-      if (error) {
-        console.error("Erro ao carregar configuração do balaio:", error);
-        setKgPorBalaioConfig(null);
-        setUsarKgPorBalaioPadrao(true);
-        return;
-      }
-
-      const value = data?.kg_por_balaio != null ? Number(data.kg_por_balaio) : null;
-      setKgPorBalaioConfig(value);
-      setUsarKgPorBalaioPadrao(data?.usar_kg_por_balaio_padrao ?? true);
-      setKgPorBalaioManual("");
+      setMostrarPropriedadeLavoura(settings.mostrar_propriedade_lavoura ?? true);
+      setUsarPropriedadeLavouraPadrao(settings.usar_propriedade_lavoura_padrao ?? false);
+      setPropriedadePadraoId(settings.propriedade_padrao_id ?? null);
+      setLavouraPadraoId(settings.lavoura_padrao_id ?? null);
     };
 
     loadConfig();
@@ -168,6 +174,11 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
       return;
     }
 
+    const deviceSettings = getDeviceLancamentoSettings(selectedCompany.id);
+    const usePropDefault = deviceSettings.usar_propriedade_lavoura_padrao ?? false;
+    const devicePropId = deviceSettings.propriedade_padrao_id ?? null;
+    const deviceLavId = deviceSettings.lavoura_padrao_id ?? null;
+
     const propsCacheKey = cacheKey("propriedades_list", selectedCompany.id);
     const lavourasCacheKey = cacheKey("lavouras_list", selectedCompany.id);
 
@@ -182,7 +193,11 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
       setPropriedades(list);
 
       const padrao = list.find((p) => (p.nome ?? "").trim().toLowerCase() === "padrao")?.id;
-      const nextPropriedadeId = padrao ?? (list[0]?.id ?? PADRAO_OPTION);
+      const fromDeviceDefault =
+        usePropDefault && devicePropId && list.some((p) => p.id === devicePropId)
+          ? devicePropId
+          : null;
+      const nextPropriedadeId = fromDeviceDefault ?? padrao ?? (list[0]?.id ?? PADRAO_OPTION);
       setPropriedadeId(nextPropriedadeId);
 
       const allLavouras = (cachedLavouras?.lavouras ?? []) as LavouraOption[];
@@ -190,7 +205,11 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
         const filtered = allLavouras.filter((l) => l.propriedade_id === nextPropriedadeId);
         setLavouras(filtered);
         const padraoLav = filtered.find((l) => l.nome.trim().toLowerCase() === "padrao")?.id;
-        setLavouraId(padraoLav ?? (filtered[0]?.id ?? PADRAO_OPTION));
+        const fromDeviceLav =
+          usePropDefault && deviceLavId && filtered.some((l) => l.id === deviceLavId)
+            ? deviceLavId
+            : null;
+        setLavouraId(fromDeviceLav ?? padraoLav ?? (filtered[0]?.id ?? PADRAO_OPTION));
       } else {
         setLavouras([]);
         setLavouraId(PADRAO_OPTION);
@@ -345,7 +364,6 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
   };
 
   const effectiveKgPorBalaio = (() => {
-    if (usarKgPorBalaioPadrao) return kgPorBalaioConfig;
     const parsed = Number(kgPorBalaioManual);
     if (!Number.isFinite(parsed) || parsed <= 0) return null;
     return parsed;
@@ -364,6 +382,13 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
 
     return peso * preco;
   }, [pesoKg, precoKg, precoPorBalaio, effectiveKgPorBalaio]);
+
+  const balaiosPreview = useMemo(() => {
+    const peso = Number(pesoKg);
+    if (!Number.isFinite(peso) || peso <= 0) return null;
+    if (effectiveKgPorBalaio == null || effectiveKgPorBalaio <= 0) return null;
+    return peso / effectiveKgPorBalaio;
+  }, [pesoKg, effectiveKgPorBalaio]);
 
   const loadPanhadores = async () => {
     if (!user || !selectedCompany) {
@@ -557,29 +582,216 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
 
     const effectivePanhadorId = panhadorId;
 
+    const escapeHtml = (input: unknown) => {
+      const str = String(input ?? "");
+      const map: Record<string, string> = {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;",
+      };
+      return str.replace(/[&<>"']/g, (ch) => map[ch] ?? ch);
+    };
+
+    const formatCurrency = (value: number | null | undefined) => {
+      if (value == null) return "-";
+      try {
+        return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+      } catch {
+        return String(value);
+      }
+    };
+
+    const openPrintTicket = async (data: {
+      codigo?: string | null;
+      empresa: string;
+      panhador: string;
+      dataColheita: string;
+      pesoKg: number;
+      numeroBag?: string | null;
+      mostrarBalaioNoTicket?: boolean;
+      kgPorBalaioUsado?: number | null;
+      precoPorKg?: number | null;
+      precoPorBalaio?: number | null;
+      valorTotal?: number | null;
+      offline?: boolean;
+    }) => {
+      const emittedAt = new Date().toLocaleString("pt-BR");
+      const dataLabel = (() => {
+        const d = new Date(data.dataColheita);
+        return Number.isNaN(d.getTime()) ? data.dataColheita : d.toLocaleString("pt-BR");
+      })();
+
+      const padRight = (value: string, width: number) => {
+        const s = value ?? "";
+        if (s.length >= width) return s.slice(0, width);
+        return s + " ".repeat(width - s.length);
+      };
+
+      const padLeft = (value: string, width: number) => {
+        const s = value ?? "";
+        if (s.length >= width) return s.slice(0, width);
+        return " ".repeat(width - s.length) + s;
+      };
+
+      const line2 = (label: string, value: string, width = 32) => {
+        const left = `${label}:`;
+        const space = 1;
+        const rightWidth = Math.max(0, width - left.length - space);
+        return `${left} ${padLeft(value, rightWidth)}`.slice(0, width);
+      };
+
+      const buildPosText58 = () => {
+        const width = 32;
+        const sep = "-".repeat(width);
+        const title = "COMPROVANTE COLHEITA";
+        const centeredTitle = (() => {
+          const t = title.slice(0, width);
+          const leftPad = Math.max(0, Math.floor((width - t.length) / 2));
+          return " ".repeat(leftPad) + t;
+        })();
+
+        const balaios =
+          data.mostrarBalaioNoTicket && data.kgPorBalaioUsado && data.kgPorBalaioUsado > 0
+            ? data.pesoKg / data.kgPorBalaioUsado
+            : null;
+
+        const lines: string[] = [];
+        lines.push(padRight(String(data.empresa ?? "-").toUpperCase(), width));
+        lines.push(centeredTitle);
+        lines.push(sep);
+        lines.push(line2("Data", dataLabel, width));
+        lines.push(line2("Gerado", emittedAt, width));
+        if (data.codigo) lines.push(line2("Codigo", data.codigo, width));
+        lines.push(sep);
+        lines.push(line2("Panhador", data.panhador || "-", width));
+        if (data.numeroBag) lines.push(line2("Bag", data.numeroBag, width));
+        lines.push(line2("Peso", `${data.pesoKg.toFixed(2)} kg`, width));
+        if (balaios != null) lines.push(line2("Balaios", balaios.toFixed(2), width));
+        if (data.precoPorKg != null) lines.push(line2("Preco/kg", formatCurrency(data.precoPorKg), width));
+        if (data.precoPorBalaio != null) lines.push(line2("Preco/bal", formatCurrency(data.precoPorBalaio), width));
+        if (data.valorTotal != null) lines.push(line2("Valor", formatCurrency(data.valorTotal), width));
+        if (data.offline) lines.push(line2("Status", "OFFLINE", width));
+        lines.push(sep);
+        lines.push("Assinatura:");
+        lines.push("______________________________");
+        lines.push("\n");
+        return lines.join("\n");
+      };
+
+      const posText = buildPosText58();
+
+      // Android (RawBT): compartilhar texto costuma ser o caminho mais direto.
+      // Se não houver suporte ao Share API, cai para impressão via navegador.
+      try {
+        if (typeof navigator !== "undefined" && "share" in navigator && typeof navigator.share === "function") {
+          await navigator.share({ title: "Comprovante", text: posText });
+          return;
+        }
+      } catch {
+        // Usuário pode cancelar ou o app não aceitar; segue para fallback.
+      }
+
+      const balaios =
+        data.mostrarBalaioNoTicket && data.kgPorBalaioUsado && data.kgPorBalaioUsado > 0
+          ? data.pesoKg / data.kgPorBalaioUsado
+          : null;
+
+      const title = "Comprovante de Colheita";
+      const html = `
+        <!doctype html>
+        <html lang="pt-BR">
+          <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>${escapeHtml(title)}</title>
+            <style>
+              @page { size: 58mm auto; margin: 0; }
+              body { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; width: 58mm; margin: 0; padding: 4mm; color: #111827; }
+              h1 { margin: 0; font-size: 14px; }
+              .top { border-bottom: 1px dashed #9ca3af; padding-bottom: 8px; margin-bottom: 8px; }
+              .meta { font-size: 11px; color: #111827; display: grid; gap: 2px; margin-top: 6px; }
+              .kpi { border-top: 1px dashed #9ca3af; padding-top: 8px; margin-top: 8px; font-size: 11px; }
+              .kpi .row { display: flex; justify-content: space-between; gap: 8px; }
+              .kpi .label { opacity: 0.9; }
+              .kpi .value { font-weight: 700; white-space: nowrap; }
+              .footer { margin-top: 12px; font-size: 11px; }
+            </style>
+          </head>
+          <body>
+            <div class="top">
+              <h1>${escapeHtml(title)}</h1>
+              <div class="meta">
+                <div><strong>Empresa:</strong> ${escapeHtml(data.empresa)}</div>
+                <div><strong>Panhador:</strong> ${escapeHtml(data.panhador)}</div>
+                <div><strong>Data:</strong> ${escapeHtml(dataLabel)}</div>
+                <div><strong>Gerado em:</strong> ${escapeHtml(emittedAt)}</div>
+                ${data.codigo ? `<div><strong>Código:</strong> ${escapeHtml(data.codigo)}</div>` : ""}
+                ${data.numeroBag ? `<div><strong>Bag:</strong> ${escapeHtml(data.numeroBag)}</div>` : ""}
+                ${data.offline ? `<div><strong>Status:</strong> OFFLINE (pendente de sincronização)</div>` : ""}
+              </div>
+            </div>
+
+            <div class="kpi">
+              <div class="row"><div class="label">Peso</div><div class="value">${escapeHtml(data.pesoKg.toFixed(2))} kg</div></div>
+              ${balaios != null ? `<div class="row"><div class="label">Balaios</div><div class="value">${escapeHtml(balaios.toFixed(2))}</div></div>` : ""}
+              ${data.precoPorKg != null ? `<div class="row"><div class="label">Preço/kg</div><div class="value">${escapeHtml(formatCurrency(data.precoPorKg))}</div></div>` : ""}
+              ${data.precoPorBalaio != null ? `<div class="row"><div class="label">Preço/balaio</div><div class="value">${escapeHtml(formatCurrency(data.precoPorBalaio))}</div></div>` : ""}
+              ${data.valorTotal != null ? `<div class="row"><div class="label">Valor</div><div class="value">${escapeHtml(formatCurrency(data.valorTotal))}</div></div>` : ""}
+            </div>
+
+            <div class="footer">Assinatura: ________________________________</div>
+          </body>
+        </html>
+      `;
+
+      const w = window.open("", "_blank");
+      if (!w) {
+        toast({
+          title: "Popup bloqueado",
+          description: "Permita popups para imprimir o comprovante.",
+          variant: "destructive",
+        });
+        return;
+      }
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      w.focus();
+      setTimeout(() => w.print(), 250);
+    };
+
+    const toastRegisteredWithPrint = (params: {
+      title: string;
+      description: string;
+      ticket: Parameters<typeof openPrintTicket>[0];
+    }) => {
+      toast({
+        title: params.title,
+        description: params.description,
+        action: (
+          <ToastAction altText="Imprimir" onClick={() => void openPrintTicket(params.ticket)}>
+            Imprimir
+          </ToastAction>
+        ),
+      });
+    };
+
     try {
       const precoInput = precoKg.trim() ? Number(precoKg) : undefined;
 
-      if (!usarKgPorBalaioPadrao) {
-        if (effectiveKgPorBalaio == null || !Number.isFinite(effectiveKgPorBalaio) || effectiveKgPorBalaio <= 0) {
-          toast({
-            title: "Peso médio obrigatório",
-            description: "Informe o peso médio do balaio (kg) no lançamento.",
-            variant: "destructive",
-          });
-          return;
-        }
+      if (effectiveKgPorBalaio == null || !Number.isFinite(effectiveKgPorBalaio) || effectiveKgPorBalaio <= 0) {
+        toast({
+          title: "Peso médio obrigatório",
+          description: "Informe o kg médio do balaio no lançamento.",
+          variant: "destructive",
+        });
+        return;
       }
 
       if (precoPorBalaio && precoInput != null) {
-        if (effectiveKgPorBalaio == null || !Number.isFinite(effectiveKgPorBalaio) || effectiveKgPorBalaio <= 0) {
-          toast({
-            title: "Configuração do balaio",
-            description: "Defina o peso do balaio em Configurações antes de usar preço por balaio.",
-            variant: "destructive",
-          });
-          return;
-        }
+        // effectiveKgPorBalaio já validado acima
       }
 
       const pesoNumber = Number(pesoKg);
@@ -638,13 +850,28 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
       };
 
       const enqueueOffline = () => {
-        savePendingColheita({
+        const pending = savePendingColheita({
           ...basePayload,
           panhador_nome: effectiveSelected?.nome,
         });
-        toast({
+
+        toastRegisteredWithPrint({
           title: "Salvo offline",
           description: "A colheita foi salva no dispositivo e será sincronizada quando a internet voltar.",
+          ticket: {
+            codigo: `OFF-${pending.id.slice(0, 8)}`,
+            empresa: selectedCompany.nome ?? "-",
+            panhador: effectiveSelected?.nome ?? "-",
+            dataColheita: basePayload.data_colheita,
+            pesoKg: basePayload.peso_kg,
+            numeroBag: basePayload.numero_bag,
+            mostrarBalaioNoTicket: basePayload.mostrar_balaio_no_ticket,
+            kgPorBalaioUsado: basePayload.kg_por_balaio_utilizado,
+            precoPorKg: basePayload.preco_por_kg,
+            precoPorBalaio: basePayload.preco_por_balaio,
+            valorTotal: basePayload.valor_total,
+            offline: true,
+          },
         });
         onOpenChange(false);
       };
@@ -671,7 +898,24 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
 
       if (error) throw error;
 
-      toast({ title: "Movimentação registrada", description: "A colheita foi registrada com sucesso." });
+      toastRegisteredWithPrint({
+        title: "Movimentação registrada",
+        description: "A colheita foi registrada com sucesso.",
+        ticket: {
+          codigo: null,
+          empresa: selectedCompany.nome ?? "-",
+          panhador: effectiveSelected?.nome ?? "-",
+          dataColheita: basePayload.data_colheita,
+          pesoKg: basePayload.peso_kg,
+          numeroBag: basePayload.numero_bag,
+          mostrarBalaioNoTicket: basePayload.mostrar_balaio_no_ticket,
+          kgPorBalaioUsado: basePayload.kg_por_balaio_utilizado,
+          precoPorKg: basePayload.preco_por_kg,
+          precoPorBalaio: basePayload.preco_por_balaio,
+          valorTotal: basePayload.valor_total,
+          offline: false,
+        },
+      });
       onCreated?.();
       onOpenChange(false);
     } catch (err) {
@@ -719,7 +963,7 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
             ? (effectiveSelected?.bag_numero ?? "").trim()
             : null;
 
-          savePendingColheita({
+          const pending = savePendingColheita({
             panhador_id: parsed.panhadorId,
             panhador_nome: effectiveSelected?.nome,
             peso_kg: parsed.pesoKg,
@@ -740,9 +984,23 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
               : {}),
           });
 
-          toast({
+          toastRegisteredWithPrint({
             title: "Salvo offline",
             description: "A colheita ficou pendente para sincronizar.",
+            ticket: {
+              codigo: `OFF-${pending.id.slice(0, 8)}`,
+              empresa: selectedCompany.nome ?? "-",
+              panhador: effectiveSelected?.nome ?? "-",
+              dataColheita: new Date().toISOString(),
+              pesoKg: parsed.pesoKg,
+              numeroBag: numeroBagParaColheita,
+              mostrarBalaioNoTicket: usarBalaioNoTicket,
+              kgPorBalaioUsado: effectiveKgPorBalaio,
+              precoPorKg: parsed.precoKg ?? null,
+              precoPorBalaio: precoPorBalaioFinal,
+              valorTotal,
+              offline: true,
+            },
           });
           onOpenChange(false);
           return;
@@ -1047,39 +1305,14 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
                     />
                   </div>
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <Label>Kg médio/balaio</Label>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2"
-                        onClick={() => {
-                          setUsarKgPorBalaioPadrao((prev) => {
-                            const next = !prev;
-                            if (next) setKgPorBalaioManual("");
-                            return next;
-                          });
-                        }}
-                      >
-                        {usarKgPorBalaioPadrao ? "Editar" : "Usar padrão"}
-                      </Button>
-                    </div>
+                    <Label>Kg médio/balaio</Label>
                     <Input
                       type="number"
                       step="0.01"
-                      value={
-                        usarKgPorBalaioPadrao
-                          ? effectiveKgPorBalaio != null
-                            ? String(effectiveKgPorBalaio)
-                            : ""
-                          : kgPorBalaioManual
-                      }
-                      onChange={(e) => {
-                        if (!usarKgPorBalaioPadrao) setKgPorBalaioManual(e.target.value);
-                      }}
+                      value={kgPorBalaioManual}
+                      onChange={(e) => setKgPorBalaioManual(e.target.value)}
                       placeholder="0,00"
-                      readOnly={usarKgPorBalaioPadrao}
+                      required
                     />
                     <p className="text-xs text-muted-foreground">
                       Padrão em Configurações: {kgPorBalaioConfig != null ? `${kgPorBalaioConfig} kg` : "não configurado"}
@@ -1087,7 +1320,7 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
                   </div>
                 </div>
 
-                {propriedadesSupported && (
+                {propriedadesSupported && mostrarPropriedadeLavoura && (
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2">
                       <Label>Propriedade</Label>
@@ -1157,6 +1390,23 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
                   </Button>
                 </div>
 
+                <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xs text-muted-foreground">Qtd. balaios</div>
+                    <div className="font-semibold">
+                      {balaiosPreview != null ? balaiosPreview.toFixed(2) : "—"}
+                    </div>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between gap-3">
+                    <div className="text-xs text-muted-foreground">Valor a pagar</div>
+                    <div className="font-semibold">
+                      {valorTotalPreview != null
+                        ? valorTotalPreview.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+                        : "—"}
+                    </div>
+                  </div>
+                </div>
+
                 {/* Advanced/desktop-only options */}
                 <div className="hidden sm:block space-y-4">
                   <div className="flex items-center justify-between rounded-lg border p-3">
@@ -1168,14 +1418,6 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
                     </div>
                     <Switch checked={usarBalaioNoTicket} onCheckedChange={setUsarBalaioNoTicket} />
                   </div>
-
-                  {!usarKgPorBalaioPadrao && (
-                    <div className="space-y-2">
-                      <p className="text-xs text-muted-foreground">
-                        Peso do balaio está em modo manual neste lançamento.
-                      </p>
-                    </div>
-                  )}
 
                   {valorTotalPreview != null && (
                     <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm">

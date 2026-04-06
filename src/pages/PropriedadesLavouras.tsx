@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
+import { getDeviceLancamentoSettings } from "@/lib/deviceSettings";
 import { Tables, TablesInsert, TablesUpdate } from "@/integrations/supabase/types";
 
 type ColheitaResumo = {
@@ -130,6 +131,22 @@ export default function PropriedadesLavouras() {
   const loadConversoes = async () => {
     if (!user || !selectedCompany) return;
     try {
+      const device = getDeviceLancamentoSettings(selectedCompany.id);
+      const deviceKgBalaio =
+        device.kg_por_balaio_padrao != null && Number.isFinite(Number(device.kg_por_balaio_padrao))
+          ? Number(device.kg_por_balaio_padrao)
+          : null;
+      const deviceKgLitro =
+        device.kg_por_litro != null && Number.isFinite(Number(device.kg_por_litro)) && Number(device.kg_por_litro) > 0
+          ? Number(device.kg_por_litro)
+          : null;
+
+      if (deviceKgBalaio != null && deviceKgBalaio > 0) {
+        setKgPorBalaioConfig(deviceKgBalaio);
+        setKgPorLitroConfig(deviceKgLitro ?? 1);
+        return;
+      }
+
       const { data, error } = await supabase
         .from("empresas_config")
         .select("kg_por_balaio, kg_por_litro")

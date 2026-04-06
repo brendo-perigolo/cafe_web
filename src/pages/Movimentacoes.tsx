@@ -1,7 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
-import { RefreshCw, Package, Coins, AlertCircle, Pencil, Trash2, Plus, Check, ChevronsUpDown } from "lucide-react";
+import {
+  RefreshCw,
+  Package,
+  Coins,
+  AlertCircle,
+  Pencil,
+  Trash2,
+  Check,
+  ChevronsUpDown,
+  SlidersHorizontal,
+  FileText,
+  CreditCard,
+} from "lucide-react";
 import { Navbar } from "@/components/Navbar";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -25,7 +37,6 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
-import { LancamentoDialog } from "@/components/LancamentoDialog";
 import { cn } from "@/lib/utils";
 import { cacheKey, getPendingColheitas, readJson, writeJson } from "@/lib/offline";
 
@@ -112,13 +123,14 @@ export default function Movimentacoes() {
   const [editSaving, setEditSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Lancamento | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
-  const [registerDialogOpen, setRegisterDialogOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
   const [kgPorBalaio, setKgPorBalaio] = useState<number | null>(null);
   const [confirmPagamentoOpen, setConfirmPagamentoOpen] = useState(false);
 
   const [syncLogOpen, setSyncLogOpen] = useState(false);
   const [syncLogTarget, setSyncLogTarget] = useState<Lancamento | null>(null);
+
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const isOffline = !navigator.onLine;
 
@@ -990,9 +1002,7 @@ export default function Movimentacoes() {
       <main className="w-full px-2 sm:px-4 lg:px-6 py-8 space-y-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-sm uppercase tracking-[0.4em] text-muted-foreground">Movimentações</p>
-            <h1 className="text-3xl font-bold text-[hsl(24_25%_18%)]">Entradas e saídas de colheita</h1>
-            <p className="text-sm text-muted-foreground">Acompanhe rapidamente tudo que foi lançado na safra</p>
+            <h1 className="text-lg font-bold text-[hsl(24_25%_18%)] sm:text-3xl">Movimentações colheitas</h1>
           </div>
           <Button variant="outline" className="rounded-full" onClick={loadLancamentos} disabled={loading}>
             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
@@ -1000,55 +1010,55 @@ export default function Movimentacoes() {
           </Button>
         </div>
 
-        <section className="grid gap-4 md:grid-cols-3 lg:grid-cols-5">
+        <section className="grid grid-cols-3 gap-2 sm:gap-4 md:grid-cols-3 lg:grid-cols-5">
           <Card className="border border-slate-100 bg-white">
-            <CardContent className="space-y-1 py-5">
-              <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Volume total</p>
+            <CardContent className="space-y-0.5 py-3 sm:space-y-1 sm:py-5">
+              <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground sm:text-xs sm:tracking-[0.3em]">Volume total</p>
               <div className="flex items-end justify-between">
-                <p className="font-display text-3xl text-[hsl(24_25%_20%)]">{totalPeso.toFixed(2)} kg</p>
-                <Package className="h-5 w-5 text-[hsl(196_65%_40%)]" />
+                <p className="font-display text-lg text-[hsl(24_25%_20%)] sm:text-3xl">{totalPeso.toFixed(2)} kg</p>
+                <Package className="h-4 w-4 text-[hsl(196_65%_40%)] sm:h-5 sm:w-5" />
               </div>
-              <p className="text-xs text-muted-foreground">Somatório dos registros carregados</p>
+              <p className="hidden text-xs text-muted-foreground sm:block">Somatório dos registros carregados</p>
             </CardContent>
           </Card>
           <Card className="border border-slate-100 bg-white">
-            <CardContent className="space-y-1 py-5">
-              <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Total balaios</p>
+            <CardContent className="space-y-0.5 py-3 sm:space-y-1 sm:py-5">
+              <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground sm:text-xs sm:tracking-[0.3em]">Total balaios</p>
               <div className="flex items-end justify-between">
-                <p className="font-display text-3xl text-[hsl(196_65%_35%)]">{totalBalaios.toFixed(2)}</p>
-                <Package className="h-5 w-5 text-[hsl(196_65%_40%)]" />
+                <p className="font-display text-lg text-[hsl(196_65%_35%)] sm:text-3xl">{totalBalaios.toFixed(2)}</p>
+                <Package className="h-4 w-4 text-[hsl(196_65%_40%)] sm:h-5 sm:w-5" />
               </div>
-              <p className="text-xs text-muted-foreground">Estimado com kg por balaio configurado</p>
+              <p className="hidden text-xs text-muted-foreground sm:block">Estimado com kg por balaio configurado</p>
             </CardContent>
           </Card>
           <Card className="border border-slate-100 bg-white">
-            <CardContent className="space-y-1 py-5">
-              <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Valor fechado</p>
+            <CardContent className="space-y-0.5 py-3 sm:space-y-1 sm:py-5">
+              <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground sm:text-xs sm:tracking-[0.3em]">Valor fechado</p>
               <div className="flex items-end justify-between">
-                <p className="font-display text-3xl text-[hsl(152_45%_32%)]">{currencyFormatter.format(totalValorFechado)}</p>
-                <Coins className="h-5 w-5 text-[hsl(152_45%_40%)]" />
+                <p className="font-display text-lg text-[hsl(152_45%_32%)] sm:text-3xl">{currencyFormatter.format(totalValorFechado)}</p>
+                <Coins className="h-4 w-4 text-[hsl(152_45%_40%)] sm:h-5 sm:w-5" />
               </div>
-              <p className="text-xs text-muted-foreground">Considera lançamentos com valor informado</p>
+              <p className="hidden text-xs text-muted-foreground sm:block">Considera lançamentos com valor informado</p>
             </CardContent>
           </Card>
           <Card className="border border-slate-100 bg-white">
-            <CardContent className="space-y-1 py-5">
-              <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Total pago</p>
+            <CardContent className="space-y-0.5 py-3 sm:space-y-1 sm:py-5">
+              <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground sm:text-xs sm:tracking-[0.3em]">Total pago</p>
               <div className="flex items-end justify-between">
-                <p className="font-display text-3xl text-[hsl(152_45%_32%)]">{currencyFormatter.format(totalPago)}</p>
-                <Coins className="h-5 w-5 text-[hsl(152_45%_40%)]" />
+                <p className="font-display text-lg text-[hsl(152_45%_32%)] sm:text-3xl">{currencyFormatter.format(totalPago)}</p>
+                <Coins className="h-4 w-4 text-[hsl(152_45%_40%)] sm:h-5 sm:w-5" />
               </div>
-              <p className="text-xs text-muted-foreground">Soma apenas itens marcados como pagos</p>
+              <p className="hidden text-xs text-muted-foreground sm:block">Soma apenas itens marcados como pagos</p>
             </CardContent>
           </Card>
           <Card className="border border-slate-100 bg-white">
-            <CardContent className="space-y-1 py-5">
-              <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Pendentes</p>
+            <CardContent className="space-y-0.5 py-3 sm:space-y-1 sm:py-5">
+              <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground sm:text-xs sm:tracking-[0.3em]">Pendentes</p>
               <div className="flex items-end justify-between">
-                <p className="font-display text-3xl text-[hsl(14_70%_45%)]">{pendentes}</p>
-                <AlertCircle className="h-5 w-5 text-[hsl(14_70%_45%)]" />
+                <p className="font-display text-lg text-[hsl(14_70%_45%)] sm:text-3xl">{pendentes}</p>
+                <AlertCircle className="h-4 w-4 text-[hsl(14_70%_45%)] sm:h-5 sm:w-5" />
               </div>
-              <p className="text-xs text-muted-foreground">Lançamentos aguardando valor final</p>
+              <p className="hidden text-xs text-muted-foreground sm:block">Lançamentos aguardando valor final</p>
             </CardContent>
           </Card>
         </section>
@@ -1056,121 +1066,39 @@ export default function Movimentacoes() {
         <Card className="rounded-3xl border border-slate-100 bg-white shadow-coffee">
           <CardHeader className="gap-4">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <CardTitle className="font-display text-xl">Histórico de movimentações</CardTitle>
-                <CardDescription>Últimos lançamentos registrados para a empresa atual</CardDescription>
-              </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 lg:ml-auto">
                 <Button
                   variant="outline"
+                  size="icon"
+                  className="rounded-full"
+                  onClick={() => setFiltersOpen(true)}
+                  aria-label="Filtros"
+                  title="Filtros"
+                >
+                  <SlidersHorizontal className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
                   className="rounded-full"
                   onClick={() => openPrint("relatorio")}
                   disabled={selectedLancamentos.length === 0}
+                  aria-label="Relatório"
+                  title="Relatório"
                 >
-                  Gerar relatório
+                  <FileText className="h-4 w-4" />
                 </Button>
                 <Button
+                  size="icon"
                   className="rounded-full"
                   onClick={() => setConfirmPagamentoOpen(true)}
                   disabled={selectedLancamentos.length === 0}
+                  aria-label="Pagamento"
+                  title="Pagamento"
                 >
-                  Realizar pagamento
-                </Button>
-                <Button variant="outline" className="rounded-full" onClick={() => setRegisterDialogOpen(true)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Nova movimentação
+                  <CreditCard className="h-4 w-4" />
                 </Button>
               </div>
-            </div>
-            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5">
-              <Input
-                placeholder="Buscar por código, panhador ou bag"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-              />
-              <Select
-                value={statusFilter}
-                onValueChange={(value) => setStatusFilter(value as "todos" | "com-valor" | "pendentes")}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Filtrar por status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todos">Todos os status</SelectItem>
-                  <SelectItem value="com-valor">Com valor</SelectItem>
-                  <SelectItem value="pendentes">Pendentes</SelectItem>
-                </SelectContent>
-              </Select>
-              <Popover open={panhadorFilterOpen} onOpenChange={setPanhadorFilterOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    role="combobox"
-                    aria-expanded={panhadorFilterOpen}
-                    className="w-full justify-between"
-                  >
-                    {panhadorFilterId === "todos"
-                      ? "Todos os panhadores"
-                      : panhadores.find((p) => p.id === panhadorFilterId)?.nome ?? "Filtrar por panhador"}
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                  <Command>
-                    <CommandInput placeholder="Digite o nome do panhador..." />
-                    <CommandList>
-                      <CommandEmpty>Nenhum panhador encontrado.</CommandEmpty>
-                      <CommandGroup>
-                        <CommandItem
-                          value="Todos os panhadores"
-                          onSelect={() => {
-                            setPanhadorFilterId("todos");
-                            setPanhadorFilterOpen(false);
-                          }}
-                        >
-                          <Check
-                            className={cn(
-                              "mr-2 h-4 w-4",
-                              panhadorFilterId === "todos" ? "opacity-100" : "opacity-0",
-                            )}
-                          />
-                          Todos os panhadores
-                        </CommandItem>
-                        {panhadores.map((panhador) => (
-                          <CommandItem
-                            key={panhador.id}
-                            value={panhador.nome}
-                            onSelect={() => {
-                              setPanhadorFilterId(panhador.id);
-                              setPanhadorFilterOpen(false);
-                            }}
-                          >
-                            <Check
-                              className={cn(
-                                "mr-2 h-4 w-4",
-                                panhadorFilterId === panhador.id ? "opacity-100" : "opacity-0",
-                              )}
-                            />
-                            {panhador.nome}
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-              <Input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                max={endDate || undefined}
-              />
-              <Input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                min={startDate || undefined}
-              />
             </div>
           </CardHeader>
           <CardContent>
@@ -1187,16 +1115,29 @@ export default function Movimentacoes() {
                   )}
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" className="rounded-full" onClick={() => openPrint("relatorio")}>
-                    Relatório
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="rounded-full"
+                    onClick={() => openPrint("relatorio")}
+                    aria-label="Relatório"
+                    title="Relatório"
+                  >
+                    <FileText className="h-4 w-4" />
                   </Button>
-                  <Button size="sm" className="rounded-full" onClick={() => setConfirmPagamentoOpen(true)}>
-                    Confirmar
+                  <Button
+                    size="icon"
+                    className="rounded-full"
+                    onClick={() => setConfirmPagamentoOpen(true)}
+                    aria-label="Confirmar pagamento"
+                    title="Confirmar pagamento"
+                  >
+                    <CreditCard className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
             )}
-            <div className="overflow-x-auto rounded-2xl border border-slate-100">
+            <div className="overflow-x-auto rounded-2xl border border-slate-100 text-xs sm:text-sm">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-slate-50/80">
@@ -1211,12 +1152,12 @@ export default function Movimentacoes() {
                     </TableHead>
                     <TableHead>Código</TableHead>
                     <TableHead>Data</TableHead>
-                      <TableHead>Encarregado</TableHead>
-                      <TableHead>Aparelho</TableHead>
+                    <TableHead className="hidden md:table-cell">Encarregado</TableHead>
+                    <TableHead className="hidden md:table-cell">Aparelho</TableHead>
                     <TableHead>Panhador</TableHead>
-                    <TableHead>Bag</TableHead>
+                    <TableHead className="hidden sm:table-cell">Bag</TableHead>
                     <TableHead className="text-right">Peso (kg)</TableHead>
-                    <TableHead className="text-right">Balaios</TableHead>
+                    <TableHead className="hidden sm:table-cell text-right">Balaios</TableHead>
                     <TableHead className="text-right">Valor</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
@@ -1275,12 +1216,12 @@ export default function Movimentacoes() {
                           </div>
                         </TableCell>
                         <TableCell>{dateFormatter.format(new Date(item.data_colheita))}</TableCell>
-                        <TableCell>{item.encarregado}</TableCell>
-                        <TableCell>{item.aparelho}</TableCell>
+                        <TableCell className="hidden md:table-cell">{item.encarregado}</TableCell>
+                        <TableCell className="hidden md:table-cell">{item.aparelho}</TableCell>
                         <TableCell>{item.panhador}</TableCell>
-                        <TableCell>{item.numero_bag ?? "-"}</TableCell>
+                        <TableCell className="hidden sm:table-cell">{item.numero_bag ?? "-"}</TableCell>
                         <TableCell className="text-right font-semibold">{item.peso_kg.toFixed(2)} kg</TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="hidden sm:table-cell text-right">
                           {(() => {
                             const balaios = getBalaiosForLancamento(item);
                             return balaios != null ? `${balaios.toFixed(2)}` : "-";
@@ -1291,29 +1232,6 @@ export default function Movimentacoes() {
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-col gap-1">
-                            {item.codigo.startsWith("OFF-") && (
-                              <div className="flex items-center gap-2">
-                                <Badge className="bg-amber-100 text-amber-700">Pendente sync</Badge>
-                                {item.offline_last_error ? (
-                                  <>
-                                    <Badge className="bg-slate-100 text-destructive">Erro</Badge>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-7 w-7"
-                                      onClick={() => {
-                                        setSyncLogTarget(item);
-                                        setSyncLogOpen(true);
-                                      }}
-                                      aria-label="Ver log de sincronização"
-                                      title="Ver log de sincronização"
-                                    >
-                                      <AlertCircle className="h-4 w-4 text-destructive" />
-                                    </Button>
-                                  </>
-                                ) : null}
-                              </div>
-                            )}
                             {item.pago_em != null ? (
                               <Badge className="bg-slate-100 text-slate-700">Pago</Badge>
                             ) : item.valor_total != null ? (
@@ -1355,11 +1273,138 @@ export default function Movimentacoes() {
           </CardContent>
         </Card>
       </main>
-      <LancamentoDialog
-        open={registerDialogOpen}
-        onOpenChange={setRegisterDialogOpen}
-        onCreated={loadLancamentos}
-      />
+
+      <Dialog
+        open={filtersOpen}
+        onOpenChange={(open) => {
+          setFiltersOpen(open);
+          if (!open) setPanhadorFilterOpen(false);
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Filtros</DialogTitle>
+            <DialogDescription>Filtre as movimentações por status, panhador e período</DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-2 sm:col-span-2">
+              <Label>Busca</Label>
+              <Input
+                placeholder="Código, panhador ou bag"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Status</Label>
+              <Select
+                value={statusFilter}
+                onValueChange={(value) => setStatusFilter(value as "todos" | "com-valor" | "pendentes")}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Filtrar por status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos</SelectItem>
+                  <SelectItem value="com-valor">Com valor</SelectItem>
+                  <SelectItem value="pendentes">Pendentes</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Panhador</Label>
+              <Popover open={panhadorFilterOpen} onOpenChange={setPanhadorFilterOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={panhadorFilterOpen}
+                    className="w-full justify-between"
+                  >
+                    {panhadorFilterId === "todos"
+                      ? "Todos"
+                      : panhadores.find((p) => p.id === panhadorFilterId)?.nome ?? "Filtrar por panhador"}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Digite o nome..." />
+                    <CommandList>
+                      <CommandEmpty>Nenhum panhador encontrado.</CommandEmpty>
+                      <CommandGroup>
+                        <CommandItem
+                          value="Todos"
+                          onSelect={() => {
+                            setPanhadorFilterId("todos");
+                            setPanhadorFilterOpen(false);
+                          }}
+                        >
+                          <Check
+                            className={cn(
+                              "mr-2 h-4 w-4",
+                              panhadorFilterId === "todos" ? "opacity-100" : "opacity-0",
+                            )}
+                          />
+                          Todos
+                        </CommandItem>
+                        {panhadores.map((panhador) => (
+                          <CommandItem
+                            key={panhador.id}
+                            value={panhador.nome}
+                            onSelect={() => {
+                              setPanhadorFilterId(panhador.id);
+                              setPanhadorFilterOpen(false);
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                "mr-2 h-4 w-4",
+                                panhadorFilterId === panhador.id ? "opacity-100" : "opacity-0",
+                              )}
+                            />
+                            {panhador.nome}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Data inicial</Label>
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                max={endDate || undefined}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Data final</Label>
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                min={startDate || undefined}
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <Button variant="outline" onClick={() => setFiltersOpen(false)}>
+              Fechar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog
         open={editDialogOpen}
         onOpenChange={(open) => {
