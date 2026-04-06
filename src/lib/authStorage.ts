@@ -21,7 +21,9 @@ export const setKeepConnectedPreference = (keepConnected: boolean) => {
 };
 
 export const getPreferredStorage = (): Storage => {
-  return getKeepConnectedPreference() ? localStorage : sessionStorage;
+  // Offline-first: persist auth in localStorage so reload/PWA restart works without internet.
+  // The "manter conectado" preference still controls inactivity auto-logout (see AuthContext).
+  return localStorage;
 };
 
 export const removeFromBothStorages = (key: string) => {

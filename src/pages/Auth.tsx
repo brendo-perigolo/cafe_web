@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
 import { z } from "zod";
 import { getKeepConnectedPreference, setKeepConnectedPreference } from "@/lib/authStorage";
+import { useNavigate } from "react-router-dom";
 
 const loginSchema = z.object({
   email: z.string().email("Informe um e-mail válido"),
@@ -27,10 +28,39 @@ export default function Auth() {
   const [password, setPassword] = useState("");
   const [keepConnected, setKeepConnected] = useState(() => getKeepConnectedPreference());
   const [loading, setLoading] = useState(false);
-  const { signIn, signUp } = useAuth();
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+  const { signIn, signUp, session, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const handleOnlineChange = () => setIsOnline(navigator.onLine);
+    window.addEventListener("online", handleOnlineChange);
+    window.addEventListener("offline", handleOnlineChange);
+    return () => {
+      window.removeEventListener("online", handleOnlineChange);
+      window.removeEventListener("offline", handleOnlineChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    // Se já existe sessão (mesmo offline), não faz sentido ficar na tela de login.
+    if (!authLoading && session) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [authLoading, session, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!isOnline) {
+      toast({
+        title: "Sem conexão",
+        description: "Para o primeiro login/cadastro é necessário estar online.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -94,6 +124,11 @@ export default function Auth() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {!isOnline && !session && (
+            <div className="mb-4 rounded-md border bg-background p-3 text-sm text-muted-foreground">
+              Você está offline. Conecte-se à internet para entrar ou cadastrar.
+            </div>
+          )}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">E-mail</Label>

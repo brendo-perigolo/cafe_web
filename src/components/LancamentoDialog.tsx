@@ -1,14 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, Clock, Search } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Dialog as InlineDialog, DialogContent as InlineDialogContent, DialogDescription as InlineDialogDescription, DialogHeader as InlineDialogHeader, DialogTitle as InlineDialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
+import { getDeviceToken } from "@/lib/device";
+import { getAparelhoAtivo } from "@/lib/aparelhos";
 import { Switch } from "@/components/ui/switch";
+import { cn } from "@/lib/utils";
+import { useOfflineSync } from "@/hooks/useOfflineSync";
+import { cacheKey, readJson, writeJson } from "@/lib/offline";
 import { z } from "zod";
 import {
   AlertDialog,
@@ -35,6 +43,19 @@ interface PanhadorOption {
   bag_semana?: string | null;
 }
 
+interface PropriedadeOption {
+  id: string;
+  nome: string | null;
+}
+
+interface LavouraOption {
+  id: string;
+  nome: string;
+  propriedade_id: string;
+}
+
+const PADRAO_OPTION = "__padrao__";
+
 const formatLocalDateIso = (d: Date) => {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -57,7 +78,13 @@ interface LancamentoDialogProps {
 
 export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDialogProps) {
   const { user, selectedCompany } = useAuth();
+  const { savePendingColheita } = useOfflineSync();
   const [panhadores, setPanhadores] = useState<PanhadorOption[]>([]);
+  const [propriedadesSupported, setPropriedadesSupported] = useState(true);
+  const [propriedades, setPropriedades] = useState<PropriedadeOption[]>([]);
+  const [lavouras, setLavouras] = useState<LavouraOption[]>([]);
+  const [propriedadeId, setPropriedadeId] = useState(PADRAO_OPTION);
+  const [lavouraId, setLavouraId] = useState(PADRAO_OPTION);
   const [bagFieldsSupported, setBagFieldsSupported] = useState(true);
   const [loading, setLoading] = useState(false);
   const [panhadorId, setPanhadorId] = useState("");
@@ -77,10 +104,12 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
   const [kgPorBalaioConfig, setKgPorBalaioConfig] = useState<number | null>(null);
   const [usarKgPorBalaioPadrao, setUsarKgPorBalaioPadrao] = useState(true);
   const [kgPorBalaioManual, setKgPorBalaioManual] = useState("");
+  const [panhadorOpen, setPanhadorOpen] = useState(false);
 
   useEffect(() => {
     if (open) {
       loadPanhadores();
+      loadPropriedades();
     }
   }, [open, user, selectedCompany?.id]);
 
@@ -121,11 +150,199 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
       setPesoKg("");
       setPrecoKg("");
       setNumeroBag("");
+      setPropriedadeId(PADRAO_OPTION);
+      setLavouraId(PADRAO_OPTION);
       setUsarBalaioNoTicket(false);
       setPrecoPorBalaio(false);
       setKgPorBalaioManual("");
     }
   }, [open]);
+
+  const loadPropriedades = async () => {
+    if (!user || !selectedCompany) {
+      setPropriedades([]);
+      setLavouras([]);
+      setPropriedadesSupported(true);
+      setPropriedadeId(PADRAO_OPTION);
+      setLavouraId(PADRAO_OPTION);
+      return;
+    }
+
+    const propsCacheKey = cacheKey("propriedades_list", selectedCompany.id);
+    const lavourasCacheKey = cacheKey("lavouras_list", selectedCompany.id);
+
+    const tryLoadFromCache = () => {
+      const cachedProps = readJson<{ supported?: boolean; propriedades: PropriedadeOption[] } | null>(propsCacheKey, null);
+      const cachedLavouras = readJson<{ supported?: boolean; lavouras: LavouraOption[] } | null>(lavourasCacheKey, null);
+
+      if (!cachedProps) return false;
+
+      setPropriedadesSupported(cachedProps.supported !== false);
+      const list = (cachedProps.propriedades ?? []) as PropriedadeOption[];
+      setPropriedades(list);
+
+      const padrao = list.find((p) => (p.nome ?? "").trim().toLowerCase() === "padrao")?.id;
+      const nextPropriedadeId = padrao ?? (list[0]?.id ?? PADRAO_OPTION);
+      setPropriedadeId(nextPropriedadeId);
+
+      const allLavouras = (cachedLavouras?.lavouras ?? []) as LavouraOption[];
+      if (nextPropriedadeId !== PADRAO_OPTION) {
+        const filtered = allLavouras.filter((l) => l.propriedade_id === nextPropriedadeId);
+        setLavouras(filtered);
+        const padraoLav = filtered.find((l) => l.nome.trim().toLowerCase() === "padrao")?.id;
+        setLavouraId(padraoLav ?? (filtered[0]?.id ?? PADRAO_OPTION));
+      } else {
+        setLavouras([]);
+        setLavouraId(PADRAO_OPTION);
+      }
+
+      return true;
+    };
+
+    if (!navigator.onLine) {
+      const ok = tryLoadFromCache();
+      if (!ok) {
+        setPropriedades([]);
+        setLavouras([]);
+        setPropriedadeId(PADRAO_OPTION);
+        setLavouraId(PADRAO_OPTION);
+      }
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("propriedades")
+      .select("id, nome")
+      .eq("empresa_id", selectedCompany.id)
+      .order("nome", { ascending: true, nullsFirst: true });
+
+    if (error) {
+      const message = (error as { message?: string }).message?.toLowerCase() ?? "";
+      const looksLikeMissingTable =
+        (error as { code?: string }).code === "42P01" || message.includes("relation") || message.includes("does not exist");
+
+      if (looksLikeMissingTable) {
+        setPropriedadesSupported(false);
+        setPropriedades([]);
+        setLavouras([]);
+        setPropriedadeId(PADRAO_OPTION);
+        setLavouraId(PADRAO_OPTION);
+
+        writeJson(propsCacheKey, {
+          cachedAt: new Date().toISOString(),
+          supported: false,
+          propriedades: [],
+        });
+        return;
+      }
+
+      console.error("Erro ao carregar propriedades:", error);
+      toast({ title: "Erro", description: "Não foi possível carregar propriedades.", variant: "destructive" });
+
+      // fallback cache
+      tryLoadFromCache();
+      return;
+    }
+
+    setPropriedadesSupported(true);
+    const list = (data || []) as PropriedadeOption[];
+    setPropriedades(list);
+
+    writeJson(propsCacheKey, {
+      cachedAt: new Date().toISOString(),
+      supported: true,
+      propriedades: list,
+    });
+
+    const padrao = list.find((p) => (p.nome ?? "").trim().toLowerCase() === "padrao")?.id;
+    const nextPropriedadeId = padrao ?? (list[0]?.id ?? PADRAO_OPTION);
+    setPropriedadeId(nextPropriedadeId);
+
+    if (nextPropriedadeId !== PADRAO_OPTION) {
+      await loadLavouras(nextPropriedadeId);
+    } else {
+      setLavouras([]);
+      setLavouraId(PADRAO_OPTION);
+    }
+  };
+
+  const loadLavouras = async (propId: string) => {
+    if (!user || !selectedCompany) {
+      setLavouras([]);
+      setLavouraId(PADRAO_OPTION);
+      return;
+    }
+
+    const lavourasCacheKey = cacheKey("lavouras_list", selectedCompany.id);
+    const cachedLavouras = readJson<{ supported?: boolean; lavouras: LavouraOption[] } | null>(lavourasCacheKey, null);
+
+    if (!navigator.onLine) {
+      const all = (cachedLavouras?.lavouras ?? []) as LavouraOption[];
+      const filtered = all.filter((l) => l.propriedade_id === propId);
+      setLavouras(filtered);
+      const padrao = filtered.find((l) => l.nome.trim().toLowerCase() === "padrao")?.id;
+      setLavouraId(padrao ?? (filtered[0]?.id ?? PADRAO_OPTION));
+      return;
+    }
+
+    if (!propId || propId === PADRAO_OPTION || !propId.trim()) {
+      setLavouras([]);
+      setLavouraId(PADRAO_OPTION);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("lavouras")
+      .select("id, nome, propriedade_id")
+      .eq("empresa_id", selectedCompany.id)
+      .eq("propriedade_id", propId)
+      .order("nome", { ascending: true });
+
+    if (error) {
+      const message = (error as { message?: string }).message?.toLowerCase() ?? "";
+      const looksLikeMissingTable =
+        (error as { code?: string }).code === "42P01" || message.includes("relation") || message.includes("does not exist");
+      if (looksLikeMissingTable) {
+        setPropriedadesSupported(false);
+        setLavouras([]);
+        setLavouraId(PADRAO_OPTION);
+
+        writeJson(lavourasCacheKey, {
+          cachedAt: new Date().toISOString(),
+          supported: false,
+          lavouras: [],
+        });
+        return;
+      }
+
+      console.error("Erro ao carregar lavouras:", error);
+      toast({ title: "Erro", description: "Não foi possível carregar lavouras.", variant: "destructive" });
+
+      // fallback cache
+      const all = (cachedLavouras?.lavouras ?? []) as LavouraOption[];
+      const filtered = all.filter((l) => l.propriedade_id === propId);
+      setLavouras(filtered);
+      return;
+    }
+
+    const list = (data || []) as LavouraOption[];
+    setLavouras(list);
+
+    // cache all lavouras for the company (merge with existing)
+    try {
+      const existing = (cachedLavouras?.lavouras ?? []) as LavouraOption[];
+      const merged = [...existing.filter((l) => l.propriedade_id !== propId), ...list];
+      writeJson(lavourasCacheKey, {
+        cachedAt: new Date().toISOString(),
+        supported: true,
+        lavouras: merged,
+      });
+    } catch {
+      // ignore
+    }
+    const padrao = list.find((l) => l.nome.trim().toLowerCase() === "padrao")?.id;
+    setLavouraId(padrao ?? (list[0]?.id ?? PADRAO_OPTION));
+  };
 
   const effectiveKgPorBalaio = (() => {
     if (usarKgPorBalaioPadrao) return kgPorBalaioConfig;
@@ -152,6 +369,20 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
     if (!user || !selectedCompany) {
       setPanhadores([]);
       setBagFieldsSupported(true);
+      return;
+    }
+
+    const panCacheKey = cacheKey("panhadores_list", selectedCompany.id);
+    const loadFromCache = () => {
+      const cached = readJson<{ bagFieldsSupported?: boolean; panhadores: PanhadorOption[] } | null>(panCacheKey, null);
+      if (!cached?.panhadores) return false;
+      setBagFieldsSupported(cached.bagFieldsSupported !== false);
+      setPanhadores((cached.panhadores ?? []) as PanhadorOption[]);
+      return true;
+    };
+
+    if (!navigator.onLine) {
+      loadFromCache();
       return;
     }
 
@@ -182,25 +413,33 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
 
         setBagFieldsSupported(false);
         setPanhadores((fallback.data as unknown as PanhadorOption[]) || []);
+
+        writeJson(panCacheKey, {
+          cachedAt: new Date().toISOString(),
+          bagFieldsSupported: false,
+          panhadores: (fallback.data as unknown as PanhadorOption[]) || [],
+        });
         return;
       }
 
       console.error("Erro ao carregar panhadores:", error);
       toast({ title: "Erro", description: "Não foi possível carregar os panhadores.", variant: "destructive" });
+
+      loadFromCache();
       return;
     }
 
     setBagFieldsSupported(true);
     setPanhadores(data || []);
+
+    writeJson(panCacheKey, {
+      cachedAt: new Date().toISOString(),
+      bagFieldsSupported: true,
+      panhadores: data || [],
+    });
   };
 
   const selectedPanhador = panhadores.find((p) => p.id === panhadorId) ?? null;
-  const currentWeekKey = getWeekMondayKey();
-  const bagObrigatoriaHoje =
-    bagFieldsSupported &&
-    new Date().getDay() === 1 &&
-    selectedPanhador != null &&
-    (selectedPanhador.bag_semana ?? null) !== currentWeekKey;
 
   useEffect(() => {
     if (!open) return;
@@ -321,15 +560,6 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
     try {
       const precoInput = precoKg.trim() ? Number(precoKg) : undefined;
 
-      if (bagObrigatoriaHoje) {
-        toast({
-          title: "Bag obrigatória",
-          description: "Hoje é segunda-feira: use o botão 'Trocar bag' para definir a bag desta semana.",
-          variant: "destructive",
-        });
-        return;
-      }
-
       if (!usarKgPorBalaioPadrao) {
         if (effectiveKgPorBalaio == null || !Number.isFinite(effectiveKgPorBalaio) || effectiveKgPorBalaio <= 0) {
           toast({
@@ -386,7 +616,8 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
         ? (effectiveSelected?.bag_numero ?? "").trim()
         : null;
 
-      const { error } = await supabase.from("colheitas").insert({
+      const aparelhoToken = getDeviceToken();
+      const basePayload = {
         panhador_id: parsed.panhadorId,
         peso_kg: parsed.pesoKg,
         preco_por_kg: parsed.precoKg ?? null,
@@ -395,10 +626,47 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
         numero_bag: numeroBagParaColheita,
         data_colheita: new Date().toISOString(),
         empresa_id: selectedCompany.id,
-        user_id: user.id,
-        sincronizado: true,
         mostrar_balaio_no_ticket: usarBalaioNoTicket,
         kg_por_balaio_utilizado: kgPorBalaioUsado,
+        aparelho_token: aparelhoToken,
+        ...(propriedadesSupported
+          ? {
+              propriedade_id: propriedadeId === PADRAO_OPTION ? null : propriedadeId,
+              lavoura_id: lavouraId === PADRAO_OPTION ? null : lavouraId,
+            }
+          : {}),
+      };
+
+      const enqueueOffline = () => {
+        savePendingColheita({
+          ...basePayload,
+          panhador_nome: effectiveSelected?.nome,
+        });
+        toast({
+          title: "Salvo offline",
+          description: "A colheita foi salva no dispositivo e será sincronizada quando a internet voltar.",
+        });
+        onOpenChange(false);
+      };
+
+      if (!navigator.onLine) {
+        enqueueOffline();
+        return;
+      }
+
+      let pendenteAparelho = true;
+      try {
+        const ativo = await getAparelhoAtivo(selectedCompany.id, aparelhoToken);
+        pendenteAparelho = ativo !== true;
+      } catch {
+        pendenteAparelho = true;
+      }
+
+      const { error } = await supabase.from("colheitas").insert({
+        ...basePayload,
+        user_id: user.id,
+        sincronizado: true,
+        pendente_aparelho: pendenteAparelho,
       });
 
       if (error) throw error;
@@ -407,6 +675,84 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
       onCreated?.();
       onOpenChange(false);
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const isNetworkError = !navigator.onLine || /failed to fetch|networkerror|load failed/i.test(message);
+
+      if (isNetworkError) {
+        toast({
+          title: "Sem conexão",
+          description: "Salvando localmente para sincronizar depois...",
+        });
+
+        try {
+          const precoInput = precoKg.trim() ? Number(precoKg) : undefined;
+          const pesoNumber = Number(pesoKg);
+          const round2 = (value: number) => Number(value.toFixed(2));
+
+          let precoPorKgFinal: number | undefined;
+          let precoPorBalaioFinal: number | null = null;
+          let valorTotal: number | null = null;
+
+          if (precoInput != null) {
+            if (precoPorBalaio) {
+              const kgBalaio = effectiveKgPorBalaio as number;
+              precoPorBalaioFinal = round2(precoInput);
+              precoPorKgFinal = round2(precoInput / kgBalaio);
+              valorTotal = round2((pesoNumber / kgBalaio) * precoPorBalaioFinal);
+            } else {
+              precoPorKgFinal = round2(precoInput);
+              if (effectiveKgPorBalaio != null && Number.isFinite(effectiveKgPorBalaio) && effectiveKgPorBalaio > 0) {
+                precoPorBalaioFinal = round2(precoInput * effectiveKgPorBalaio);
+              }
+              valorTotal = round2(pesoNumber * precoPorKgFinal);
+            }
+          }
+
+          const parsed = lancamentoSchema.parse({
+            panhadorId: panhadorId,
+            pesoKg: pesoNumber,
+            precoKg: precoPorKgFinal,
+          });
+
+          const effectiveSelected = panhadores.find((p) => p.id === parsed.panhadorId) ?? null;
+          const numeroBagParaColheita = (effectiveSelected?.bag_numero ?? "").trim()
+            ? (effectiveSelected?.bag_numero ?? "").trim()
+            : null;
+
+          savePendingColheita({
+            panhador_id: parsed.panhadorId,
+            panhador_nome: effectiveSelected?.nome,
+            peso_kg: parsed.pesoKg,
+            preco_por_kg: parsed.precoKg ?? null,
+            preco_por_balaio: precoPorBalaioFinal,
+            kg_por_balaio_utilizado: effectiveKgPorBalaio,
+            valor_total: valorTotal,
+            numero_bag: numeroBagParaColheita,
+            data_colheita: new Date().toISOString(),
+            empresa_id: selectedCompany.id,
+            aparelho_token: getDeviceToken(),
+            mostrar_balaio_no_ticket: usarBalaioNoTicket,
+            ...(propriedadesSupported
+              ? {
+                  propriedade_id: propriedadeId === PADRAO_OPTION ? null : propriedadeId,
+                  lavoura_id: lavouraId === PADRAO_OPTION ? null : lavouraId,
+                }
+              : {}),
+          });
+
+          toast({
+            title: "Salvo offline",
+            description: "A colheita ficou pendente para sincronizar.",
+          });
+          onOpenChange(false);
+          return;
+        } catch (fallbackError) {
+          console.error("Falha ao salvar offline após erro de rede:", fallbackError);
+        }
+
+        return;
+      }
+
       if (err instanceof z.ZodError) {
         toast({ title: "Dados inválidos", description: err.errors[0].message, variant: "destructive" });
       } else {
@@ -521,11 +867,27 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Registrar movimentação</DialogTitle>
-          <DialogDescription>Preencha os dados da nova colheita</DialogDescription>
-        </DialogHeader>
+      <DialogContent
+        overlayClassName="bg-background sm:bg-black/80"
+        className="inset-0 left-0 top-0 max-h-[100dvh] w-screen max-w-none translate-x-0 translate-y-0 rounded-none p-0 sm:left-[50%] sm:top-[50%] sm:max-h-[calc(100vh-2rem)] sm:w-[calc(100%-2rem)] sm:max-w-lg sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-lg"
+        hideClose
+      >
+        <form onSubmit={handleSubmit} className="flex max-h-[calc(100vh-2rem)] flex-col sm:max-h-none">
+          {/* Mobile header */}
+          <div className="flex items-center gap-2 border-b bg-card px-3 py-3 sm:hidden">
+            <Button type="button" variant="ghost" size="icon" onClick={() => onOpenChange(false)} aria-label="Voltar">
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+            <div className="min-w-0">
+              <p className="truncate text-base font-semibold">Nova Colheita</p>
+            </div>
+          </div>
+
+          {/* Desktop header */}
+          <DialogHeader className="hidden px-6 pt-6 sm:flex">
+            <DialogTitle>Nova Colheita</DialogTitle>
+            <DialogDescription>Preencha os dados do lançamento</DialogDescription>
+          </DialogHeader>
 
         <AlertDialog open={bagConflictOpen} onOpenChange={setBagConflictOpen}>
           <AlertDialogContent>
@@ -580,119 +942,298 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
           </InlineDialogContent>
         </InlineDialog>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label>Panhador</Label>
-            <Select value={panhadorId} onValueChange={setPanhadorId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione o panhador" />
-              </SelectTrigger>
-              <SelectContent>
-                {panhadores.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.nome}
-                    {p.apelido ? ` (${p.apelido})` : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label>Peso (kg)</Label>
-            <Input type="number" step="0.01" value={pesoKg} onChange={(e) => setPesoKg(e.target.value)} required />
-          </div>
-          <div className="space-y-2">
-            <Label>Buscar bag (opcional)</Label>
-            <div className="flex gap-2">
-              <Input value={numeroBag} onChange={(e) => handleNumeroBagChange(e.target.value)} placeholder="Ex: 20" />
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="shrink-0"
-                onClick={() => {
-                  setTrocarBagValue("");
-                  setTrocarBagOpen(true);
-                }}
-                disabled={!panhadorId || !bagFieldsSupported}
-                title={!panhadorId ? "Selecione um panhador" : undefined}
-              >
-                Trocar bag
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">Este campo é apenas para busca/seleção.</p>
-            {bagObrigatoriaHoje && (
-              <p className="text-xs text-muted-foreground">Hoje é segunda-feira: use o botão "Trocar bag" para definir a bag desta semana.</p>
-            )}
-          </div>
-          <div className="space-y-2">
-            <Label>{precoPorBalaio ? "Preço por balaio (opcional)" : "Preço por kg (opcional)"}</Label>
-            <Input type="number" step="0.01" value={precoKg} onChange={(e) => setPrecoKg(e.target.value)} />
-          </div>
-          <div className="flex items-center justify-between rounded-lg border p-3">
-            <div className="space-y-1">
-              <p className="text-sm font-medium">Mostrar balaio no ticket</p>
-              <p className="text-xs text-muted-foreground">
-                Média: peso ÷ peso do balaio ({effectiveKgPorBalaio != null ? `${effectiveKgPorBalaio} kg` : "não definido"})
-              </p>
-            </div>
-            <Switch checked={usarBalaioNoTicket} onCheckedChange={setUsarBalaioNoTicket} />
-          </div>
-          {!usarKgPorBalaioPadrao && (
-            <div className="space-y-2">
-              <Label>Peso do balaio (kg) no lançamento</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={kgPorBalaioManual}
-                onChange={(e) => setKgPorBalaioManual(e.target.value)}
-                placeholder="0.00"
-                required
-              />
-              <p className="text-xs text-muted-foreground">
-                Padrão em Configurações: {kgPorBalaioConfig != null ? `${kgPorBalaioConfig} kg` : "não configurado"}
-              </p>
-            </div>
-          )}
-          <div className="flex items-center justify-between rounded-lg border p-3">
-            <div className="space-y-1">
-              <p className="text-sm font-medium">Trocar preço para balaio</p>
-              <p className="text-xs text-muted-foreground">Digitar o preço por balaio e converter automaticamente.</p>
-            </div>
-            <Switch checked={precoPorBalaio} onCheckedChange={setPrecoPorBalaio} />
-          </div>
-          {valorTotalPreview != null && (
-            <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm">
-              Valor estimado: <strong>{valorTotalPreview.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</strong>
-              {precoKg.trim() && (
-                <div className="mt-1 text-xs text-muted-foreground">
-                  Preço/kg: {(
-                    precoPorBalaio && effectiveKgPorBalaio != null && effectiveKgPorBalaio > 0
-                      ? Number(precoKg || 0) / effectiveKgPorBalaio
-                      : Number(precoKg || 0)
-                  ).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+          <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+            <div className="rounded-3xl border bg-card p-4 sm:rounded-2xl">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>
+                    Apanhador <span className="text-destructive">*</span>
+                  </Label>
+                  <Popover open={panhadorOpen} onOpenChange={setPanhadorOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        role="combobox"
+                        className="w-full justify-start gap-2"
+                      >
+                        <Search className="h-4 w-4 text-muted-foreground" />
+                        <span className={cn("truncate", !panhadorId && "text-muted-foreground")}>
+                          {selectedPanhador
+                            ? `${selectedPanhador.nome}${selectedPanhador.apelido ? ` (${selectedPanhador.apelido})` : ""}`
+                            : "Buscar apanhador pelo nome..."}
+                        </span>
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Buscar apanhador..." />
+                        <CommandList>
+                          <CommandEmpty>Nenhum apanhador encontrado.</CommandEmpty>
+                          <CommandGroup>
+                            {panhadores.map((p) => (
+                              <CommandItem
+                                key={p.id}
+                                value={`${p.nome} ${p.apelido ?? ""}`}
+                                onSelect={() => {
+                                  setPanhadorId(p.id);
+                                  setPanhadorOpen(false);
+                                }}
+                              >
+                                {p.nome}
+                                {p.apelido ? ` (${p.apelido})` : ""}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 </div>
-              )}
-              {usarBalaioNoTicket && effectiveKgPorBalaio != null && effectiveKgPorBalaio > 0 && precoKg.trim() && (
-                <div className="mt-1 text-xs text-muted-foreground">
-                  Preço/balaio: {(
-                    precoPorBalaio ? Number(precoKg || 0) : Number(precoKg || 0) * effectiveKgPorBalaio
-                  ).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>
+                      Bag <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      value={numeroBag}
+                      onChange={(e) => handleNumeroBagChange(e.target.value)}
+                      placeholder="Ex: 001"
+                      maxLength={60}
+                    />
+                    <div className="hidden sm:block">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="mt-2 w-full"
+                        onClick={() => {
+                          setTrocarBagValue("");
+                          setTrocarBagOpen(true);
+                        }}
+                        disabled={!panhadorId || !bagFieldsSupported}
+                        title={!panhadorId ? "Selecione um apanhador" : undefined}
+                      >
+                        Trocar bag
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>
+                      Peso (kg) <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={pesoKg}
+                      onChange={(e) => setPesoKg(e.target.value)}
+                      placeholder="0,00"
+                      required
+                    />
+                  </div>
                 </div>
-              )}
-              {usarBalaioNoTicket && effectiveKgPorBalaio != null && effectiveKgPorBalaio > 0 && pesoKg.trim() && (
-                <div className="mt-1 text-xs text-muted-foreground">
-                  Média de balaios: {(Number(pesoKg) / effectiveKgPorBalaio).toFixed(2)}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>{precoPorBalaio ? "R$/Balaio" : "R$/Kg"}</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={precoKg}
+                      onChange={(e) => setPrecoKg(e.target.value)}
+                      placeholder="0,00"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label>Kg médio/balaio</Label>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2"
+                        onClick={() => {
+                          setUsarKgPorBalaioPadrao((prev) => {
+                            const next = !prev;
+                            if (next) setKgPorBalaioManual("");
+                            return next;
+                          });
+                        }}
+                      >
+                        {usarKgPorBalaioPadrao ? "Editar" : "Usar padrão"}
+                      </Button>
+                    </div>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={
+                        usarKgPorBalaioPadrao
+                          ? effectiveKgPorBalaio != null
+                            ? String(effectiveKgPorBalaio)
+                            : ""
+                          : kgPorBalaioManual
+                      }
+                      onChange={(e) => {
+                        if (!usarKgPorBalaioPadrao) setKgPorBalaioManual(e.target.value);
+                      }}
+                      placeholder="0,00"
+                      readOnly={usarKgPorBalaioPadrao}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Padrão em Configurações: {kgPorBalaioConfig != null ? `${kgPorBalaioConfig} kg` : "não configurado"}
+                    </p>
+                  </div>
                 </div>
-              )}
+
+                {propriedadesSupported && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label>Propriedade</Label>
+                      <Select
+                        value={propriedadeId}
+                        onValueChange={(value) => {
+                          const next = value || PADRAO_OPTION;
+                          setPropriedadeId(next);
+                          if (next === PADRAO_OPTION) {
+                            setLavouras([]);
+                            setLavouraId(PADRAO_OPTION);
+                            return;
+                          }
+
+                          void loadLavouras(next);
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecionar" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={PADRAO_OPTION}>Padrão</SelectItem>
+                          {propriedades.map((p) => (
+                            <SelectItem key={p.id} value={p.id}>
+                              {(p.nome ?? "").trim() ? (p.nome as string) : "(sem nome)"}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Lavoura</Label>
+                      <Select value={lavouraId} onValueChange={setLavouraId} disabled={propriedadeId === PADRAO_OPTION}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione a propriedade" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={PADRAO_OPTION}>Padrão</SelectItem>
+                          {lavouras.map((l) => (
+                            <SelectItem key={l.id} value={l.id}>
+                              {l.nome}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <Button
+                    type="button"
+                    variant={precoPorBalaio ? "outline" : "secondary"}
+                    className="w-full"
+                    onClick={() => setPrecoPorBalaio(false)}
+                  >
+                    Por Kg
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={precoPorBalaio ? "secondary" : "outline"}
+                    className="w-full"
+                    onClick={() => setPrecoPorBalaio(true)}
+                  >
+                    Por Balaio
+                  </Button>
+                </div>
+
+                {/* Advanced/desktop-only options */}
+                <div className="hidden sm:block space-y-4">
+                  <div className="flex items-center justify-between rounded-lg border p-3">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">Mostrar balaio no ticket</p>
+                      <p className="text-xs text-muted-foreground">
+                        Média: peso ÷ peso do balaio ({effectiveKgPorBalaio != null ? `${effectiveKgPorBalaio} kg` : "não definido"})
+                      </p>
+                    </div>
+                    <Switch checked={usarBalaioNoTicket} onCheckedChange={setUsarBalaioNoTicket} />
+                  </div>
+
+                  {!usarKgPorBalaioPadrao && (
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground">
+                        Peso do balaio está em modo manual neste lançamento.
+                      </p>
+                    </div>
+                  )}
+
+                  {valorTotalPreview != null && (
+                    <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm">
+                      Valor estimado: <strong>{valorTotalPreview.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</strong>
+                      {precoKg.trim() && (
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          Preço/kg: {(
+                            precoPorBalaio && effectiveKgPorBalaio != null && effectiveKgPorBalaio > 0
+                              ? Number(precoKg || 0) / effectiveKgPorBalaio
+                              : Number(precoKg || 0)
+                          ).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                        </div>
+                      )}
+                      {usarBalaioNoTicket && effectiveKgPorBalaio != null && effectiveKgPorBalaio > 0 && precoKg.trim() && (
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          Preço/balaio: {(
+                            precoPorBalaio ? Number(precoKg || 0) : Number(precoKg || 0) * effectiveKgPorBalaio
+                          ).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                        </div>
+                      )}
+                      {usarBalaioNoTicket && effectiveKgPorBalaio != null && effectiveKgPorBalaio > 0 && pesoKg.trim() && (
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          Média de balaios: {(Number(pesoKg) / effectiveKgPorBalaio).toFixed(2)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-          )}
-          <div className="flex justify-end gap-2">
+          </div>
+
+          {/* Mobile footer */}
+          <div className="border-t bg-background px-4 py-3 sm:hidden">
+            <div className="mb-3 flex items-center gap-2">
+              <div className="flex min-w-0 items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs text-muted-foreground">
+                <span className="truncate font-mono">
+                  SF-{getDeviceToken().replace(/-/g, "").slice(0, 8).toUpperCase()}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs text-muted-foreground">
+                <Clock className="h-3.5 w-3.5" />
+                <span>{new Date().toLocaleString("pt-BR")}</span>
+              </div>
+            </div>
+
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? "Salvando..." : "Salvar Colheita"}
+            </Button>
+          </div>
+
+          {/* Desktop footer */}
+          <div className="hidden justify-end gap-2 border-t bg-background px-6 py-4 sm:flex">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancelar
             </Button>
             <Button type="submit" disabled={loading}>
-              {loading ? "Salvando..." : "Registrar"}
+              {loading ? "Salvando..." : "Salvar"}
             </Button>
           </div>
         </form>

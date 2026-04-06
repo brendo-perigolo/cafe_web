@@ -2,8 +2,6 @@ import { useMemo } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { MASTER_EMAIL } from "@/constants/master";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Button } from "@/components/ui/button";
 
 interface ProtectedRouteProps {
@@ -13,11 +11,14 @@ interface ProtectedRouteProps {
 }
 
 export const ProtectedRoute = ({ children, requiresCompany = true, requireMaster = false }: ProtectedRouteProps) => {
-  const { user, loading, companiesLoading, selectedCompany, companies, selectCompany, signOut } = useAuth();
+  const { user, loading, companiesLoading, companyReady, selectedCompany } = useAuth();
 
-  const hasCompanies = useMemo(() => companies.length > 0, [companies.length]);
+  const canCheckCompany = useMemo(() => {
+    if (!requiresCompany) return true;
+    return companyReady;
+  }, [requiresCompany, companyReady]);
 
-  if (loading || (requiresCompany && companiesLoading)) {
+  if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
@@ -29,48 +30,32 @@ export const ProtectedRoute = ({ children, requiresCompany = true, requireMaster
     return <Navigate to="/auth" replace />;
   }
 
+  if (requiresCompany && (companiesLoading || !companyReady)) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+      </div>
+    );
+  }
+
   if (requireMaster && user.email?.toLowerCase() !== MASTER_EMAIL.toLowerCase()) {
     return <Navigate to="/dashboard" replace />;
   }
 
-  if (!requireMaster && requiresCompany && !selectedCompany) {
+  if (!requireMaster && requiresCompany && canCheckCompany && !selectedCompany) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background to-muted p-4">
-        <Dialog open onOpenChange={() => {}}>
-          <DialogContent className="max-w-lg shadow-coffee" overlayClassName="bg-transparent" hideClose>
-            <DialogHeader>
-              <DialogTitle>Selecione a empresa</DialogTitle>
-              <DialogDescription>
-                Escolha a empresa para continuar. Você pode digitar para buscar.
-              </DialogDescription>
-            </DialogHeader>
-
-            {hasCompanies ? (
-              <Command>
-                <CommandInput placeholder="Digite o nome da empresa..." />
-                <CommandList>
-                  <CommandEmpty>Nenhuma empresa encontrada.</CommandEmpty>
-                  <CommandGroup>
-                    {companies.map((empresa) => (
-                      <CommandItem key={empresa.id} value={empresa.nome} onSelect={() => selectCompany(empresa.id)}>
-                        {empresa.nome}
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                </CommandList>
-              </Command>
-            ) : (
-              <div className="space-y-3">
-                <p className="text-sm text-muted-foreground">
-                  Seu e-mail ainda não está vinculado a uma empresa.
-                </p>
-                <Button variant="outline" onClick={signOut}>
-                  Voltar para login
-                </Button>
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
+      <div className="flex min-h-screen items-center justify-center p-6">
+        <div className="w-full max-w-md space-y-4 text-center">
+          <h1 className="text-xl font-semibold">Empresa não selecionada</h1>
+          <p className="text-sm text-muted-foreground">
+            Para continuar, selecione uma empresa. Você só verá essa tela quando não houver empresa definida.
+          </p>
+          <div className="flex justify-center gap-2">
+            <Button variant="default" onClick={() => (window.location.href = "/selecionar-empresa")}>
+              Selecionar empresa
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }

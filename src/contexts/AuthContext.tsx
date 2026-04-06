@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { User, Session, AuthApiError } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Tables } from "@/integrations/supabase/types";
 import { MASTER_EMAIL } from "@/constants/master";
 import {
@@ -10,6 +10,10 @@ import {
   getPreferredStorage,
   removeFromBothStorages,
 } from "@/lib/authStorage";
+import { cacheKey, writeJson } from "@/lib/offline";
+import { clearEncryptedLoginState, saveEncryptedLoginState } from "@/lib/secureLogin";
+
+const LAST_PATH_STORAGE_KEY = "safra:last_path";
 
 interface AuthContextType {
   user: User | null;
@@ -26,6 +30,7 @@ interface AuthContextType {
   companies: Tables<"empresas">[];
   selectedCompany: Tables<"empresas"> | null;
   companiesLoading: boolean;
+  companyReady: boolean;
   refreshCompanies: () => Promise<void>;
   selectCompany: (empresaId: string) => void;
 }
@@ -39,10 +44,27 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authInitialized, setAuthInitialized] = useState(false);
   const [companies, setCompanies] = useState<Tables<"empresas">[]>([]);
   const [companiesLoading, setCompaniesLoading] = useState(false);
-  const [selectedCompany, setSelectedCompany] = useState<Tables<"empresas"> | null>(null);
+  const [companyReady, setCompanyReady] = useState(false);
+  const [selectedCompany, setSelectedCompany] = useState<Tables<"empresas"> | null>(() => {
+    try {
+      const storedId = window.localStorage.getItem(COMPANY_STORAGE_KEY);
+      return storedId ? ({ id: storedId, nome: "Carregando..." } as Tables<"empresas">) : null;
+    } catch {
+      return null;
+    }
+  });
   const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    // Guarda a última rota visitada (para voltar após reload)
+    const path = location.pathname;
+    if (!path || path === "/auth") return;
+    getPreferredStorage().setItem(LAST_PATH_STORAGE_KEY, path);
+  }, [location.pathname]);
 
   const ensureProfileExists = async (currentUser: User) => {
     try {
@@ -108,11 +130,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setCompanies([]);
     setSelectedCompany(null);
     setCompaniesLoading(false);
+    setCompanyReady(false);
     removeFromBothStorages(COMPANY_STORAGE_KEY);
+    window.localStorage.removeItem(COMPANY_STORAGE_KEY);
   };
 
   const loadCompanies = async (userId: string, userEmail?: string | null) => {
-    setCompaniesLoading(true);
     try {
       let lista: Tables<"empresas">[] = [];
 
@@ -142,11 +165,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       setCompanies(lista);
 
-      const storage = getPreferredStorage();
-      const storedId = storage.getItem(COMPANY_STORAGE_KEY);
+      // Empresa selecionada precisa persistir em reload, então usamos localStorage.
+      const storedId = window.localStorage.getItem(COMPANY_STORAGE_KEY);
 
-      const currentSelectedId = selectedCompany?.id;
-      const preferredId = storedId ?? currentSelectedId;
+      const preferredId = storedId ?? selectedCompany?.id;
 
       const preferredCompany = preferredId
         ? lista.find((empresa) => empresa.id === preferredId)
@@ -154,22 +176,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       if (preferredCompany) {
         setSelectedCompany(preferredCompany);
-        storage.setItem(COMPANY_STORAGE_KEY, preferredCompany.id);
+        window.localStorage.setItem(COMPANY_STORAGE_KEY, preferredCompany.id);
         return;
       }
 
       if (lista.length === 1) {
         setSelectedCompany(lista[0]);
-        storage.setItem(COMPANY_STORAGE_KEY, lista[0].id);
+        window.localStorage.setItem(COMPANY_STORAGE_KEY, lista[0].id);
       } else {
         setSelectedCompany(null);
-        storage.removeItem(COMPANY_STORAGE_KEY);
+        window.localStorage.removeItem(COMPANY_STORAGE_KEY);
       }
     } catch (error) {
       console.error("Erro ao carregar empresas vinculadas:", error);
-      resetCompanies();
-    } finally {
-      setCompaniesLoading(false);
+      // Importante: não derruba a empresa selecionada em falhas transitórias (reload/offline/intermitência).
+      // Mantém o que já temos e deixa o usuário seguir.
+      setCompanies([]);
     }
   };
 
@@ -179,7 +201,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       (event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
+        // Mantém loading enquanto carregamos empresas/empresa selecionada para evitar
+        // o ProtectedRoute abrir o seletor durante reload.
         setLoading(false);
+        setAuthInitialized(true);
       }
     );
 
@@ -188,21 +213,38 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
+      setAuthInitialized(true);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
-    if (user) {
-      (async () => {
+    // Importante: durante reload, o `user` começa null antes de recuperarmos a sessão.
+    // Não podemos apagar a empresa selecionada nesse momento, senão o app pede seleção toda hora.
+    if (!authInitialized) {
+      return;
+    }
+
+    if (!user) {
+      resetCompanies();
+      return;
+    }
+
+    // Ao recarregar, pode haver um "flash" do seletor antes do loadCompanies concluir.
+    // Garantimos companiesLoading=true durante esse bootstrap.
+    setCompaniesLoading(true);
+    setCompanyReady(false);
+    (async () => {
+      try {
         await ensureProfileExists(user);
         await loadCompanies(user.id, user.email);
-      })();
-    } else {
-      resetCompanies();
-    }
-  }, [user]);
+      } finally {
+        setCompaniesLoading(false);
+        setCompanyReady(true);
+      }
+    })();
+  }, [user, authInitialized]);
 
   useEffect(() => {
     if (!user) return;
@@ -260,14 +302,42 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         clearSupabaseAuthFromLocalStorage();
       }
 
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
       if (error) return { error };
 
-      navigate("/dashboard");
+      // Após login, acelera o bootstrap: garante profile, carrega empresas e dispara prefetch.
+      // (O listener de auth também fará isso, mas aqui reduz o tempo até o cache ficar pronto.)
+      const loggedUser = data?.user ?? null;
+      if (loggedUser) {
+        await ensureProfileExists(loggedUser);
+        await loadCompanies(loggedUser.id, loggedUser.email);
+
+        const empresaId =
+          window.localStorage.getItem(COMPANY_STORAGE_KEY) ||
+          selectedCompany?.id ||
+          "";
+        if (empresaId) {
+          // Não bloqueia navegação: apenas dispara para popular o cache.
+          prefetchEmpresaData(empresaId);
+        }
+      }
+
+      // Após login, tenta voltar para a última rota útil, senão vai para dashboard.
+      const storage = getPreferredStorage();
+      const lastPath = storage.getItem(LAST_PATH_STORAGE_KEY);
+      const safeLast = lastPath && lastPath !== "/auth" ? lastPath : "/dashboard";
+      navigate(safeLast);
+
+      // Salva metadados de login localmente (criptografado). Não armazena senha.
+      saveEncryptedLoginState({
+        email,
+        user_id: loggedUser?.id,
+        selected_empresa_id: window.localStorage.getItem(COMPANY_STORAGE_KEY) ?? undefined,
+      });
       return { error: null };
     } catch (error) {
       return { error: error as Error };
@@ -332,15 +402,131 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const signOut = async () => {
     await supabase.auth.signOut();
+    clearEncryptedLoginState();
     resetCompanies();
     navigate("/auth");
   };
+
+  const prefetchEmpresaData = async (empresaId: string) => {
+    if (!empresaId.trim()) return;
+    if (!navigator.onLine) return;
+
+    // Panhadores (tela + lançamento)
+    try {
+      const primary = await supabase
+        .from("panhadores")
+        .select("id, nome, apelido, cpf, telefone, bag_numero, bag_semana, bag_atualizado_em, created_at")
+        .eq("empresa_id", empresaId)
+        .eq("ativo", true)
+        .order("created_at", { ascending: false });
+
+      if (!primary.error) {
+        writeJson(cacheKey("panhadores_list", empresaId), {
+          cachedAt: new Date().toISOString(),
+          bagFieldsSupported: true,
+          panhadores: primary.data ?? [],
+        });
+      } else {
+        const message = (primary.error as { message?: string }).message?.toLowerCase() ?? "";
+        const looksLikeMissingColumn =
+          message.includes("column") || message.includes("bag_numero") || message.includes("bag_semana") || message.includes("bag_atualizado_em");
+
+        if (looksLikeMissingColumn) {
+          const fallback = await supabase
+            .from("panhadores")
+            .select("id, nome, apelido, cpf, telefone, created_at")
+            .eq("empresa_id", empresaId)
+            .eq("ativo", true)
+            .order("created_at", { ascending: false });
+          if (!fallback.error) {
+            writeJson(cacheKey("panhadores_list", empresaId), {
+              cachedAt: new Date().toISOString(),
+              bagFieldsSupported: false,
+              panhadores: (fallback.data ?? []).map((p) => ({ ...p, bag_numero: null })),
+            });
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    // Propriedades + Lavouras (lançamento)
+    try {
+      const props = await supabase
+        .from("propriedades")
+        .select("id, nome")
+        .eq("empresa_id", empresaId)
+        .order("nome", { ascending: true, nullsFirst: true });
+
+      if (!props.error) {
+        writeJson(cacheKey("propriedades_list", empresaId), {
+          cachedAt: new Date().toISOString(),
+          supported: true,
+          propriedades: props.data ?? [],
+        });
+      } else {
+        const message = (props.error as { message?: string }).message?.toLowerCase() ?? "";
+        const looksLikeMissingTable =
+          (props.error as { code?: string }).code === "42P01" || message.includes("relation") || message.includes("does not exist");
+        if (looksLikeMissingTable) {
+          writeJson(cacheKey("propriedades_list", empresaId), {
+            cachedAt: new Date().toISOString(),
+            supported: false,
+            propriedades: [],
+          });
+        }
+      }
+
+      const lavouras = await supabase
+        .from("lavouras")
+        .select("id, nome, propriedade_id")
+        .eq("empresa_id", empresaId)
+        .order("nome", { ascending: true });
+
+      if (!lavouras.error) {
+        writeJson(cacheKey("lavouras_list", empresaId), {
+          cachedAt: new Date().toISOString(),
+          supported: true,
+          lavouras: lavouras.data ?? [],
+        });
+      } else {
+        const message = (lavouras.error as { message?: string }).message?.toLowerCase() ?? "";
+        const looksLikeMissingTable =
+          (lavouras.error as { code?: string }).code === "42P01" || message.includes("relation") || message.includes("does not exist");
+        if (looksLikeMissingTable) {
+          writeJson(cacheKey("lavouras_list", empresaId), {
+            cachedAt: new Date().toISOString(),
+            supported: false,
+            lavouras: [],
+          });
+        }
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    if (!user || !session) return;
+    saveEncryptedLoginState({
+      email: user.email ?? undefined,
+      user_id: user.id,
+      selected_empresa_id: selectedCompany?.id ?? undefined,
+    });
+  }, [user?.id, session?.access_token, selectedCompany?.id]);
+
+  useEffect(() => {
+    if (!user || !selectedCompany?.id) return;
+    // Pré-carrega dados essenciais após login/seleção de empresa.
+    prefetchEmpresaData(selectedCompany.id);
+  }, [user?.id, selectedCompany?.id]);
 
   const selectCompany = (empresaId: string) => {
     const company = companies.find((empresa) => empresa.id === empresaId) ?? null;
     setSelectedCompany(company);
     if (company) {
-      getPreferredStorage().setItem(COMPANY_STORAGE_KEY, company.id);
+      window.localStorage.setItem(COMPANY_STORAGE_KEY, company.id);
     } else {
       removeFromBothStorages(COMPANY_STORAGE_KEY);
     }
@@ -348,7 +534,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const refreshCompanies = async () => {
     if (user) {
+      setCompaniesLoading(true);
+      setCompanyReady(false);
       await loadCompanies(user.id, user.email);
+      setCompaniesLoading(false);
+      setCompanyReady(true);
     }
   };
 
@@ -364,6 +554,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         companies,
         selectedCompany,
         companiesLoading,
+        companyReady,
         refreshCompanies,
         selectCompany,
       }}

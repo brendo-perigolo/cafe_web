@@ -16,11 +16,13 @@ export default function Configuracoes() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [kgPorBalaio, setKgPorBalaio] = useState<string>("");
   const [usarKgPorBalaioPadrao, setUsarKgPorBalaioPadrao] = useState(true);
+  const [kgPorLitro, setKgPorLitro] = useState<string>("");
 
   useEffect(() => {
     const load = async () => {
       if (!user || !selectedCompany) {
         setKgPorBalaio("");
+        setKgPorLitro("");
         setInitialLoading(false);
         return;
       }
@@ -28,7 +30,7 @@ export default function Configuracoes() {
       setInitialLoading(true);
       const { data, error } = await supabase
         .from("empresas_config")
-        .select("kg_por_balaio, usar_kg_por_balaio_padrao")
+        .select("kg_por_balaio, usar_kg_por_balaio_padrao, kg_por_litro")
         .eq("empresa_id", selectedCompany.id)
         .maybeSingle();
 
@@ -46,6 +48,9 @@ export default function Configuracoes() {
       const value = data?.kg_por_balaio != null ? Number(data.kg_por_balaio) : null;
       setKgPorBalaio(value != null ? String(value) : "");
       setUsarKgPorBalaioPadrao(data?.usar_kg_por_balaio_padrao ?? true);
+
+      const litroValue = (data as { kg_por_litro?: number | null } | null)?.kg_por_litro;
+      setKgPorLitro(litroValue != null ? String(Number(litroValue)) : "");
       setInitialLoading(false);
     };
 
@@ -66,6 +71,17 @@ export default function Configuracoes() {
 
     const hasKgValue = Boolean(kgPorBalaio.trim());
     const parsed = hasKgValue ? Number(kgPorBalaio) : null;
+
+    const hasKgPorLitro = Boolean(kgPorLitro.trim());
+    const parsedKgPorLitro = hasKgPorLitro ? Number(kgPorLitro) : null;
+    if (parsedKgPorLitro == null || !Number.isFinite(parsedKgPorLitro) || parsedKgPorLitro <= 0) {
+      toast({
+        title: "Valor inválido",
+        description: "Informe um kg por litro maior que zero (ex: 1).",
+        variant: "destructive",
+      });
+      return;
+    }
     if (usarKgPorBalaioPadrao) {
       if (parsed == null || !Number.isFinite(parsed) || parsed <= 0) {
         toast({
@@ -89,6 +105,7 @@ export default function Configuracoes() {
       const payload: TablesInsert<"empresas_config"> = {
         empresa_id: selectedCompany.id,
         usar_kg_por_balaio_padrao: usarKgPorBalaioPadrao,
+        kg_por_litro: parsedKgPorLitro,
       };
 
       if (usarKgPorBalaioPadrao) {
@@ -165,6 +182,23 @@ export default function Configuracoes() {
                     No modo manual, este valor não é usado automaticamente (você deve informar no lançamento).
                   </p>
                 )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="kgPorLitro">Kg por litro (kg/L)</Label>
+                <Input
+                  id="kgPorLitro"
+                  type="number"
+                  step="0.0001"
+                  min={0}
+                  value={kgPorLitro}
+                  onChange={(e) => setKgPorLitro(e.target.value)}
+                  placeholder={initialLoading ? "Carregando..." : "1"}
+                  disabled={initialLoading}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Usado para estimar litros a partir do peso (litros = kg / kg/L).
+                </p>
               </div>
 
               <div className="flex justify-end">

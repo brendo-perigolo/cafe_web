@@ -27,6 +27,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
 import { LancamentoDialog } from "@/components/LancamentoDialog";
 import { cn } from "@/lib/utils";
+import { cacheKey, getPendingColheitas, readJson, writeJson } from "@/lib/offline";
 
 interface Lancamento {
   id: string;
@@ -38,9 +39,30 @@ interface Lancamento {
   numero_bag: string | null;
   panhador: string;
   panhador_id: string;
+  propriedade_id: string | null;
+  lavoura_id: string | null;
+  propriedade: string;
+  lavoura: string;
   preco_por_kg: number | null;
   pago_em: string | null;
+  encarregado: string;
+  aparelho: string;
+  aparelho_token: string | null;
+  pendente_aparelho: boolean;
 }
+
+interface PropriedadeOption {
+  id: string;
+  nome: string | null;
+}
+
+interface LavouraOption {
+  id: string;
+  nome: string;
+  propriedade_id: string;
+}
+
+const PADRAO_OPTION = "__padrao__";
 
 interface PanhadorOption {
   id: string;
@@ -71,8 +93,13 @@ export default function Movimentacoes() {
   const [panhadorFilterOpen, setPanhadorFilterOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Lancamento | null>(null);
+  const [propriedadesSupported, setPropriedadesSupported] = useState(true);
+  const [propriedades, setPropriedades] = useState<PropriedadeOption[]>([]);
+  const [lavouras, setLavouras] = useState<LavouraOption[]>([]);
   const [editForm, setEditForm] = useState({
     panhadorId: "",
+    propriedadeId: PADRAO_OPTION,
+    lavouraId: PADRAO_OPTION,
     pesoKg: "",
     numeroBag: "",
     precoKg: "",
@@ -86,9 +113,51 @@ export default function Movimentacoes() {
   const [kgPorBalaio, setKgPorBalaio] = useState<number | null>(null);
   const [confirmPagamentoOpen, setConfirmPagamentoOpen] = useState(false);
 
+  const isOffline = !navigator.onLine;
+
+  const mergePendingLocal = (items: Lancamento[]) => {
+    if (!selectedCompany?.id) return items;
+    const pending = getPendingColheitas().filter((p) => p.empresa_id === selectedCompany.id);
+    if (pending.length === 0) return items;
+
+    const existingIds = new Set(items.map((it) => it.id));
+
+    const locals: Lancamento[] = pending
+      .filter((p) => !existingIds.has(p.id))
+      .map((p) => ({
+        id: p.id,
+        codigo: `OFF-${p.id.slice(0, 4).toUpperCase()}`,
+        peso_kg: Number(p.peso_kg) || 0,
+        quantidade_balaios: p.kg_por_balaio_utilizado
+          ? Number((Number(p.peso_kg) / Number(p.kg_por_balaio_utilizado)).toFixed(4))
+          : null,
+        valor_total: p.valor_total != null ? Number(p.valor_total) : null,
+        data_colheita: p.data_colheita,
+        numero_bag: p.numero_bag ?? null,
+        panhador: p.panhador_nome ?? "(offline)",
+        panhador_id: p.panhador_id,
+        propriedade_id: (Object.prototype.hasOwnProperty.call(p, "propriedade_id") ? (p.propriedade_id ?? null) : null) as
+          | string
+          | null,
+        lavoura_id: (Object.prototype.hasOwnProperty.call(p, "lavoura_id") ? (p.lavoura_id ?? null) : null) as string | null,
+        propriedade: "padrao",
+        lavoura: "padrao",
+        preco_por_kg: p.preco_por_kg != null ? Number(p.preco_por_kg) : null,
+        pago_em: null,
+        encarregado: "offline",
+        aparelho: "Offline",
+        aparelho_token: (p as unknown as { aparelho_token?: string | null }).aparelho_token ?? null,
+        pendente_aparelho: true,
+      }));
+
+    // Mostra pendências locais no topo.
+    return [...locals, ...items];
+  };
+
   useEffect(() => {
     loadLancamentos();
     loadPanhadores();
+    loadPropriedades();
   }, [user, selectedCompany?.id]);
 
   useEffect(() => {
@@ -124,13 +193,133 @@ export default function Movimentacoes() {
     if (editTarget) {
       setEditForm({
         panhadorId: editTarget.panhador_id,
+        propriedadeId: editTarget.propriedade_id ?? PADRAO_OPTION,
+        lavouraId: editTarget.lavoura_id ?? PADRAO_OPTION,
         pesoKg: editTarget.peso_kg.toString(),
         numeroBag: editTarget.numero_bag ?? "",
         precoKg: editTarget.preco_por_kg != null ? editTarget.preco_por_kg.toString() : "",
         valorTotal: editTarget.valor_total != null ? editTarget.valor_total.toString() : "",
       });
+
+      if ((editTarget.propriedade_id ?? null) != null) {
+        void loadLavouras(editTarget.propriedade_id as string);
+      } else {
+        setLavouras([]);
+      }
     }
   }, [editTarget]);
+
+  const loadPropriedades = async () => {
+    if (!user || !selectedCompany) {
+      setPropriedadesSupported(true);
+      setPropriedades([]);
+      setLavouras([]);
+      return;
+    }
+
+    if (!navigator.onLine) {
+      const cached = readJson<{ supported?: boolean; propriedades?: PropriedadeOption[] } | null>(
+        cacheKey("propriedades_list", selectedCompany.id),
+        null,
+      );
+      if (cached) {
+        setPropriedadesSupported(cached.supported !== false);
+        setPropriedades(cached.propriedades ?? []);
+        return;
+      }
+    }
+
+    const { data, error } = await supabase
+      .from("propriedades")
+      .select("id, nome")
+      .eq("empresa_id", selectedCompany.id)
+      .order("nome", { ascending: true, nullsFirst: true });
+
+    if (error) {
+      const message = (error as { message?: string }).message?.toLowerCase() ?? "";
+      const looksLikeMissingTable =
+        (error as { code?: string }).code === "42P01" || message.includes("relation") || message.includes("does not exist");
+      if (looksLikeMissingTable) {
+        setPropriedadesSupported(false);
+        setPropriedades([]);
+        setLavouras([]);
+        return;
+      }
+
+      console.error("Erro ao carregar propriedades:", error);
+
+      const cached = readJson<{ supported?: boolean; propriedades?: PropriedadeOption[] } | null>(
+        cacheKey("propriedades_list", selectedCompany.id),
+        null,
+      );
+
+      if (cached) {
+        setPropriedadesSupported(cached.supported !== false);
+        setPropriedades(cached.propriedades ?? []);
+        toast({ title: "Modo offline", description: "Carregando propriedades do cache." });
+        return;
+      }
+
+      toast({ title: "Erro", description: "Não foi possível carregar propriedades.", variant: "destructive" });
+      return;
+    }
+
+    setPropriedadesSupported(true);
+    setPropriedades((data || []) as PropriedadeOption[]);
+  };
+
+  const loadLavouras = async (propId: string) => {
+    if (!user || !selectedCompany) {
+      setLavouras([]);
+      return;
+    }
+
+    if (!navigator.onLine) {
+      const cached = readJson<{ supported?: boolean; lavouras?: LavouraOption[] } | null>(
+        cacheKey("lavouras_list", selectedCompany.id),
+        null,
+      );
+      if (cached?.lavouras) {
+        setLavouras((cached.lavouras ?? []).filter((l) => l.propriedade_id === propId));
+        return;
+      }
+    }
+
+    const { data, error } = await supabase
+      .from("lavouras")
+      .select("id, nome, propriedade_id")
+      .eq("empresa_id", selectedCompany.id)
+      .eq("propriedade_id", propId)
+      .order("nome", { ascending: true });
+
+    if (error) {
+      const message = (error as { message?: string }).message?.toLowerCase() ?? "";
+      const looksLikeMissingTable =
+        (error as { code?: string }).code === "42P01" || message.includes("relation") || message.includes("does not exist");
+      if (looksLikeMissingTable) {
+        setPropriedadesSupported(false);
+        setLavouras([]);
+        return;
+      }
+
+      console.error("Erro ao carregar lavouras:", error);
+
+      const cached = readJson<{ supported?: boolean; lavouras?: LavouraOption[] } | null>(
+        cacheKey("lavouras_list", selectedCompany.id),
+        null,
+      );
+      if (cached?.lavouras) {
+        setLavouras((cached.lavouras ?? []).filter((l) => l.propriedade_id === propId));
+        toast({ title: "Modo offline", description: "Carregando lavouras do cache." });
+        return;
+      }
+
+      toast({ title: "Erro", description: "Não foi possível carregar lavouras.", variant: "destructive" });
+      return;
+    }
+
+    setLavouras((data || []) as LavouraOption[]);
+  };
 
   const loadLancamentos = async () => {
     if (!user || !selectedCompany) {
@@ -141,27 +330,79 @@ export default function Movimentacoes() {
 
     setLoading(true);
 
-    const { data, error } = await supabase
+    const movCacheKey = cacheKey("movimentacoes_list", selectedCompany.id);
+
+    const baseSelect =
+      "id, codigo, peso_kg, preco_por_kg, valor_total, data_colheita, numero_bag, panhador_id, quantidade_balaios, pago_em, aparelho_token, pendente_aparelho, profiles!colheitas_user_id_fkey(full_name), panhadores(nome)";
+    const extendedSelect = `${baseSelect}, propriedade_id, lavoura_id, propriedades(nome), lavouras(nome)`;
+
+    const colheitasQuery = supabase
       .from("colheitas")
-      .select(
-        "id, codigo, peso_kg, preco_por_kg, valor_total, data_colheita, numero_bag, panhador_id, quantidade_balaios, pago_em, panhadores(nome)",
-      )
+      .select(extendedSelect)
       .eq("empresa_id", selectedCompany.id)
       .order("data_colheita", { ascending: false })
       .limit(200);
 
-    if (error) {
-      console.error("Erro ao carregar movimentações:", error);
+    const [{ data, error }, aparelhosResult] = await Promise.all([
+      colheitasQuery,
+      supabase.from("aparelhos").select("token, nome").eq("empresa_id", selectedCompany.id),
+    ]);
+
+    const colheitasMissingColumns =
+      !!error &&
+      (((error as { code?: string }).code === "42703" || (error as { code?: string }).code === "42P01") ||
+        ((error as { message?: string }).message?.toLowerCase().includes("propriedade_id") ?? false) ||
+        ((error as { message?: string }).message?.toLowerCase().includes("lavoura_id") ?? false) ||
+        ((error as { message?: string }).message?.toLowerCase().includes("propriedades") ?? false) ||
+        ((error as { message?: string }).message?.toLowerCase().includes("lavouras") ?? false));
+
+    if (colheitasMissingColumns) {
+      setPropriedadesSupported(false);
+    }
+
+    const fallbackColheitas = colheitasMissingColumns
+      ? await supabase
+          .from("colheitas")
+          .select(baseSelect)
+          .eq("empresa_id", selectedCompany.id)
+          .order("data_colheita", { ascending: false })
+          .limit(200)
+      : null;
+
+    const effectiveData = (colheitasMissingColumns ? fallbackColheitas?.data : data) ?? [];
+    const effectiveError = colheitasMissingColumns ? fallbackColheitas?.error : error;
+
+    const aparelhosFallbackNeeded = aparelhosResult.error && (aparelhosResult.error as { code?: string }).code === "42703";
+    const aparelhosFallback = aparelhosFallbackNeeded ? await supabase.from("aparelhos").select("token, nome") : null;
+    const aparelhosData = (aparelhosFallbackNeeded ? aparelhosFallback?.data : aparelhosResult.data) ?? [];
+    const aparelhosError = aparelhosFallbackNeeded ? aparelhosFallback?.error : aparelhosResult.error;
+
+    if (aparelhosError) console.error("Erro ao carregar aparelhos:", aparelhosError);
+
+    const aparelhoByToken = new Map<string, { nome: string }>();
+    (aparelhosData ?? []).forEach((a) => aparelhoByToken.set(a.token, { nome: a.nome }));
+
+    if (effectiveError) {
+      console.error("Erro ao carregar movimentações:", effectiveError);
+
+      const cached = readJson<{ cachedAt?: string; lancamentos: Lancamento[] } | null>(movCacheKey, null);
+      if (cached?.lancamentos?.length) {
+        setLancamentos(mergePendingLocal(cached.lancamentos));
+        toast({ title: "Modo offline", description: "Mostrando movimentações salvas no dispositivo." });
+        setLoading(false);
+        return;
+      }
+
       toast({
-        title: "Erro ao carregar movimentações",
-        description: "Tente novamente em instantes.",
+        title: "Falha de conexão",
+        description: isOffline ? "Sem internet e sem cache disponível." : "Tente novamente em instantes.",
         variant: "destructive",
       });
       setLoading(false);
       return;
     }
 
-    const normalized: Lancamento[] = (data || []).map((item) => ({
+    const normalized: Lancamento[] = (effectiveData || []).map((item) => ({
       id: item.id,
       codigo: item.codigo ?? "-",
       peso_kg: Number(item.peso_kg) || 0,
@@ -172,10 +413,28 @@ export default function Movimentacoes() {
       numero_bag: item.numero_bag,
       panhador: (item.panhadores as { nome?: string } | null)?.nome ?? "-",
       panhador_id: item.panhador_id,
+      propriedade_id: (item as { propriedade_id?: string | null }).propriedade_id ?? null,
+      lavoura_id: (item as { lavoura_id?: string | null }).lavoura_id ?? null,
+      propriedade: ((item as { propriedades?: { nome?: string | null } | null }).propriedades as { nome?: string | null } | null)?.nome ?? "padrao",
+      lavoura: ((item as { lavouras?: { nome?: string | null } | null }).lavouras as { nome?: string | null } | null)?.nome ?? "padrao",
       pago_em: (item as { pago_em?: string | null }).pago_em ?? null,
+      encarregado: (item.profiles as { full_name?: string } | null)?.full_name ?? "-",
+      aparelho_token: (item as { aparelho_token?: string | null }).aparelho_token ?? null,
+      aparelho:
+        ((item as { aparelho_token?: string | null }).aparelho_token ?? null)
+          ? aparelhoByToken.get(((item as { aparelho_token?: string | null }).aparelho_token ?? "").trim())?.nome ??
+            (((item as { aparelho_token?: string | null }).aparelho_token ?? "").trim().slice(0, 8) || "-")
+          : "-",
+      pendente_aparelho: (item as { pendente_aparelho?: boolean }).pendente_aparelho ?? false,
     }));
 
-    setLancamentos(normalized);
+    const merged = mergePendingLocal(normalized);
+    setLancamentos(merged);
+
+    writeJson(movCacheKey, {
+      cachedAt: new Date().toISOString(),
+      lancamentos: normalized,
+    });
     setLoading(false);
   };
 
@@ -183,6 +442,14 @@ export default function Movimentacoes() {
     if (!user || !selectedCompany) {
       setPanhadores([]);
       return;
+    }
+
+    if (!navigator.onLine) {
+      const cached = readJson<{ panhadores?: PanhadorOption[] } | null>(cacheKey("panhadores_list", selectedCompany.id), null);
+      if (cached?.panhadores) {
+        setPanhadores((cached.panhadores ?? []).map((p) => ({ id: p.id, nome: p.nome })));
+        return;
+      }
     }
 
     const { data, error } = await supabase
@@ -194,6 +461,14 @@ export default function Movimentacoes() {
 
     if (error) {
       console.error("Erro ao carregar panhadores:", error);
+
+      const cached = readJson<{ panhadores?: PanhadorOption[] } | null>(cacheKey("panhadores_list", selectedCompany.id), null);
+      if (cached?.panhadores) {
+        setPanhadores((cached.panhadores ?? []).map((p) => ({ id: p.id, nome: p.nome })));
+        toast({ title: "Modo offline", description: "Carregando panhadores do cache." });
+        return;
+      }
+
       toast({ title: "Erro", description: "Não foi possível carregar panhadores.", variant: "destructive" });
       return;
     }
@@ -522,6 +797,40 @@ export default function Movimentacoes() {
 
       if (error) throw error;
 
+      // Espelha no controle financeiro: cria uma despesa por colheita quitada.
+      try {
+        const { data: plano, error: planoError } = await supabase
+          .from("planos_contas")
+          .select("id")
+          .eq("empresa_id", selectedCompany.id)
+          .eq("nome_lower", "pagamento de panha")
+          .maybeSingle();
+
+        if (planoError) throw planoError;
+
+        if (plano?.id) {
+          const dataVencimento = pagoEmIso.slice(0, 10); // YYYY-MM-DD
+          const despesasPayload = selectedLancamentos.map((it) => ({
+            empresa_id: selectedCompany.id,
+            criado_por: user.id,
+            valor: it.valor_total ?? 0,
+            data_vencimento: dataVencimento,
+            tipo_servico: null,
+            plano_conta_id: plano.id,
+            pagamento_metodo: null,
+            colheita_id: it.id,
+          }));
+
+          const { error: despError } = await supabase
+            .from("despesas")
+            .upsert(despesasPayload, { onConflict: "colheita_id", ignoreDuplicates: true });
+
+          if (despError) throw despError;
+        }
+      } catch (e) {
+        console.error("Falha ao lançar despesas automaticamente (movimentações):", e);
+      }
+
       toast({ title: "Pagamento confirmado", description: `Lote ${lote} registrado.` });
       setConfirmPagamentoOpen(false);
       openPrint("comprovante", lote, new Date(pagoEmIso).toLocaleString("pt-BR"));
@@ -582,6 +891,13 @@ export default function Movimentacoes() {
         ? Number((precoNumber * pesoNumber).toFixed(2))
         : null;
 
+    const propriedadePayload = propriedadesSupported
+      ? {
+          propriedade_id: editForm.propriedadeId === PADRAO_OPTION ? null : editForm.propriedadeId,
+          lavoura_id: editForm.lavouraId === PADRAO_OPTION ? null : editForm.lavouraId,
+        }
+      : {};
+
     setEditSaving(true);
 
     try {
@@ -596,6 +912,10 @@ export default function Movimentacoes() {
           numero_bag: editTarget.numero_bag,
           panhador_id: editTarget.panhador_id,
           panhador_nome: editTarget.panhador,
+          propriedade_id: editTarget.propriedade_id,
+          lavoura_id: editTarget.lavoura_id,
+          propriedade_nome: editTarget.propriedade,
+          lavoura_nome: editTarget.lavoura,
           data_colheita: editTarget.data_colheita,
           responsavel_email: user.email,
         },
@@ -611,6 +931,7 @@ export default function Movimentacoes() {
           preco_por_kg: precoNumber,
           valor_total: valorNumber,
           numero_bag: editForm.numeroBag.trim() ? editForm.numeroBag.trim() : null,
+          ...(propriedadePayload as Record<string, unknown>),
           updated_at: new Date().toISOString(),
         })
         .eq("id", editTarget.id)
@@ -656,7 +977,7 @@ export default function Movimentacoes() {
   return (
     <div className="min-h-screen bg-[hsl(210_45%_97%)]">
       <Navbar />
-      <main className="mx-auto w-full max-w-6xl px-4 py-8 space-y-8">
+      <main className="w-full px-2 sm:px-4 lg:px-6 py-8 space-y-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-sm uppercase tracking-[0.4em] text-muted-foreground">Movimentações</p>
@@ -880,6 +1201,8 @@ export default function Movimentacoes() {
                     </TableHead>
                     <TableHead>Código</TableHead>
                     <TableHead>Data</TableHead>
+                      <TableHead>Encarregado</TableHead>
+                      <TableHead>Aparelho</TableHead>
                     <TableHead>Panhador</TableHead>
                     <TableHead>Bag</TableHead>
                     <TableHead className="text-right">Peso (kg)</TableHead>
@@ -892,13 +1215,13 @@ export default function Movimentacoes() {
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="py-6 text-center text-sm text-muted-foreground">
+                        <TableCell colSpan={12} className="py-6 text-center text-sm text-muted-foreground">
                         Carregando movimentações...
                       </TableCell>
                     </TableRow>
                   ) : filteredLancamentos.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="py-6 text-center text-sm text-muted-foreground">
+                        <TableCell colSpan={12} className="py-6 text-center text-sm text-muted-foreground">
                         {lancamentos.length === 0
                           ? "Nenhum lançamento encontrado para esta empresa"
                           : "Nenhum resultado para o filtro aplicado"}
@@ -918,6 +1241,8 @@ export default function Movimentacoes() {
                         </TableCell>
                         <TableCell className="font-mono text-sm">#{item.codigo}</TableCell>
                         <TableCell>{dateFormatter.format(new Date(item.data_colheita))}</TableCell>
+                        <TableCell>{item.encarregado}</TableCell>
+                        <TableCell>{item.aparelho}</TableCell>
                         <TableCell>{item.panhador}</TableCell>
                         <TableCell>{item.numero_bag ?? "-"}</TableCell>
                         <TableCell className="text-right font-semibold">{item.peso_kg.toFixed(2)} kg</TableCell>
@@ -931,20 +1256,35 @@ export default function Movimentacoes() {
                           {item.valor_total != null ? currencyFormatter.format(item.valor_total) : "Pendente"}
                         </TableCell>
                         <TableCell>
-                          {item.pago_em != null ? (
-                            <Badge className="bg-slate-100 text-slate-700">Pago</Badge>
-                          ) : item.valor_total != null ? (
-                              <Badge className="bg-emerald-100 text-emerald-700">Valor fechado</Badge>
-                            ) : (
-                              <Badge className="bg-amber-100 text-amber-700">Pendente</Badge>
+                          <div className="flex flex-col gap-1">
+                            {item.pago_em != null ? (
+                              <Badge className="bg-slate-100 text-slate-700">Pago</Badge>
+                            ) : item.valor_total != null ? (
+                                <Badge className="bg-emerald-100 text-emerald-700">Valor fechado</Badge>
+                              ) : (
+                                <Badge className="bg-amber-100 text-amber-700">Pendente</Badge>
+                              )}
+                            {item.pendente_aparelho && (
+                              <Badge className="bg-amber-100 text-amber-700">Aparelho inativo</Badge>
                             )}
+                          </div>
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
-                            <Button variant="ghost" size="icon" onClick={() => handleOpenEdit(item)}>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleOpenEdit(item)}
+                              disabled={item.codigo.startsWith("OFF-")}
+                            >
                               <Pencil className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(item)}>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setDeleteTarget(item)}
+                              disabled={item.codigo.startsWith("OFF-")}
+                            >
                               <Trash2 className="h-4 w-4 text-destructive" />
                             </Button>
                           </div>
@@ -1000,6 +1340,59 @@ export default function Movimentacoes() {
                   </SelectContent>
                 </Select>
               </div>
+
+              {propriedadesSupported && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Propriedade</Label>
+                    <Select
+                      value={editForm.propriedadeId}
+                      onValueChange={(value) => {
+                        setEditForm((prev) => ({ ...prev, propriedadeId: value, lavouraId: PADRAO_OPTION }));
+                        if (value === PADRAO_OPTION) {
+                          setLavouras([]);
+                          return;
+                        }
+                        void loadLavouras(value);
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Padrão" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={PADRAO_OPTION}>Padrão</SelectItem>
+                        {propriedades.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {(p.nome ?? "").trim() ? (p.nome as string) : "(sem nome)"}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Lavoura</Label>
+                    <Select
+                      value={editForm.lavouraId}
+                      onValueChange={(value) => setEditForm((prev) => ({ ...prev, lavouraId: value }))}
+                      disabled={editForm.propriedadeId === PADRAO_OPTION}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Padrão" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={PADRAO_OPTION}>Padrão</SelectItem>
+                        {lavouras.map((l) => (
+                          <SelectItem key={l.id} value={l.id}>
+                            {l.nome}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Label>Peso (kg)</Label>
                 <Input

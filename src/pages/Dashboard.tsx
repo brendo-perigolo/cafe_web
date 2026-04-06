@@ -4,13 +4,16 @@ import type { LucideIcon } from "lucide-react";
 import {
   Calendar,
   Clock3,
+  Coins,
   Coffee,
   LogOut,
+  MapPinned,
   NotebookPen,
   Package,
   RefreshCw,
   Smartphone,
   TrendingUp,
+  UserCog,
   Users,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,8 +22,9 @@ import { Navbar } from "@/components/Navbar";
 import { LancamentoDialog } from "@/components/LancamentoDialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { useOfflineSync } from "@/hooks/useOfflineSync";
+import { getPendingCounts, useOfflineSync } from "@/hooks/useOfflineSync";
 import { toast } from "@/hooks/use-toast";
+import { cacheKey, readJson, writeJson } from "@/lib/offline";
 import { cn } from "@/lib/utils";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Pie, PieChart, XAxis, Cell } from "recharts";
@@ -29,6 +33,7 @@ type ColheitaRecord = {
   id: string;
   codigo: string;
   peso_kg: number;
+  quantidade_balaios: number | null;
   valor_total: number | null;
   data_colheita: string;
   numero_bag: string | null;
@@ -54,8 +59,9 @@ type QuickLink = {
 };
 
 const navigationItems: NavigationItem[] = [
-  { label: "Cadastros", icon: Users, route: "/panhadores" },
-  { label: "Aparelhos", icon: Smartphone },
+  { label: "Panhadores", icon: Users, route: "/panhadores" },
+  { label: "Encarregados", icon: UserCog, route: "/encarregados" },
+  { label: "Aparelhos", icon: Smartphone, route: "/aparelhos" },
   { label: "Movimentações", icon: Clock3, route: "/movimentacoes" },
 ];
 
@@ -81,9 +87,12 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const { user, selectedCompany, signOut } = useAuth();
   const { isOnline, syncing, syncPendingData } = useOfflineSync();
+  const [pendingCounts, setPendingCounts] = useState(() => getPendingCounts());
   const navigate = useNavigate();
   const location = useLocation();
   const [lancamentoDialogOpen, setLancamentoDialogOpen] = useState(false);
+
+  const totalPendentes = pendingCounts.colheitas + pendingCounts.panhadores;
 
   const loadStats = async () => {
     if (!user || !selectedCompany) {
@@ -93,12 +102,14 @@ export default function Dashboard() {
       return;
     }
 
+    const statsCacheKey = cacheKey("dashboard_stats", selectedCompany.id);
+
     try {
       const [{ data: colheitasData, error: colheitasError }, { data: panhadoresData, error: panhadoresError }] =
         await Promise.all([
           supabase
             .from("colheitas")
-            .select("id, codigo, peso_kg, valor_total, data_colheita, numero_bag, panhadores!inner(id, nome)")
+            .select("id, codigo, peso_kg, quantidade_balaios, valor_total, data_colheita, numero_bag, panhadores!inner(id, nome)")
             .eq("empresa_id", selectedCompany.id)
             .order("data_colheita", { ascending: false }),
           supabase
@@ -115,6 +126,7 @@ export default function Dashboard() {
         id: colheita.id,
         codigo: colheita.codigo,
         peso_kg: Number(colheita.peso_kg) || 0,
+        quantidade_balaios: colheita.quantidade_balaios != null ? Number(colheita.quantidade_balaios) : null,
         valor_total: colheita.valor_total != null ? Number(colheita.valor_total) : null,
         data_colheita: colheita.data_colheita,
         numero_bag: colheita.numero_bag,
@@ -126,13 +138,34 @@ export default function Dashboard() {
 
       setColheitas(normalizedColheitas);
       setPanhadoresAtivos(panhadoresData?.length ?? 0);
+
+      writeJson(statsCacheKey, {
+        cachedAt: new Date().toISOString(),
+        colheitas: normalizedColheitas,
+        panhadoresAtivos: panhadoresData?.length ?? 0,
+      });
     } catch (error) {
       console.error("Erro ao carregar estatísticas:", error);
-      toast({
-        title: "Erro ao carregar dados",
-        description: "Tente novamente mais tarde",
-        variant: "destructive",
-      });
+
+      const cached = readJson<{ cachedAt?: string; colheitas: ColheitaRecord[]; panhadoresAtivos: number } | null>(
+        statsCacheKey,
+        null,
+      );
+
+      if (cached?.colheitas) {
+        setColheitas(cached.colheitas);
+        setPanhadoresAtivos(cached.panhadoresAtivos ?? 0);
+        toast({
+          title: "Modo offline",
+          description: "Mostrando últimos dados salvos no dispositivo.",
+        });
+      } else {
+        toast({
+          title: "Erro ao carregar dados",
+          description: "Tente novamente mais tarde",
+          variant: "destructive",
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -143,10 +176,15 @@ export default function Dashboard() {
     loadStats();
   }, [user, selectedCompany?.id]);
 
+  useEffect(() => {
+    setPendingCounts(getPendingCounts());
+  }, [isOnline, syncing, lancamentoDialogOpen, selectedCompany?.id]);
+
   const handleSync = async () => {
     try {
       setLoading(true);
       await syncPendingData();
+      setPendingCounts(getPendingCounts());
     } catch (error) {
       console.error("Erro na sincronização:", error);
       toast({
@@ -156,6 +194,7 @@ export default function Dashboard() {
       });
     } finally {
       await loadStats();
+      setPendingCounts(getPendingCounts());
     }
   };
 
@@ -253,7 +292,7 @@ export default function Dashboard() {
 
   const quickLinks: QuickLink[] = [
     {
-      label: "Cadastros",
+      label: "Panhadores",
       description: "Panhadores e equipes",
       icon: Users,
       action: () => navigate("/panhadores"),
@@ -263,7 +302,7 @@ export default function Dashboard() {
       label: "Aparelhos",
       description: "Gestão de aparelhos",
       icon: Smartphone,
-      action: () => toast({ title: "Aparelhos", description: "Função em desenvolvimento." }),
+      action: () => navigate("/aparelhos"),
       accent: "from-violet-50 to-white border-violet-100 text-violet-700",
     },
     {
@@ -272,6 +311,20 @@ export default function Dashboard() {
       icon: Clock3,
       action: () => navigate("/movimentacoes"),
       accent: "from-emerald-50 to-white border-emerald-100 text-emerald-700",
+    },
+    {
+      label: "Controle Financeiro",
+      description: "Despesas e gastos",
+      icon: Coins,
+      action: () => navigate("/despesas"),
+      accent: "from-emerald-50 to-white border-emerald-100 text-emerald-700",
+    },
+    {
+      label: "Propriedades",
+      description: "Propriedades e lavouras",
+      icon: MapPinned,
+      action: () => navigate("/propriedades"),
+      accent: "from-amber-50 to-white border-amber-100 text-amber-700",
     },
   ];
 
@@ -382,7 +435,7 @@ export default function Dashboard() {
                     </div>
                     <Button onClick={handleSync} disabled={!isOnline || syncing} size="sm" className="rounded-full bg-[hsl(196_65%_45%)] text-white hover:bg-[hsl(196_65%_40%)]">
                       <RefreshCw className={cn("mr-2 h-4 w-4", syncing && "animate-spin")} />
-                      Sincronizar
+                      Sincronizar{totalPendentes > 0 ? ` (${totalPendentes})` : ""}
                     </Button>
                   </div>
                 </div>
@@ -392,22 +445,22 @@ export default function Dashboard() {
                 </div>
               </CardHeader>
               <CardContent className="pt-6">
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid grid-cols-2 gap-3 sm:gap-4">
                   {quickLinks.map((item) => (
                     <button
                       key={item.label}
                       onClick={item.action}
                       className={cn(
-                        "flex items-center gap-3 rounded-2xl border bg-gradient-to-br px-4 py-3 text-left text-sm transition hover:-translate-y-0.5",
+                        "flex min-h-[92px] flex-col items-center justify-center gap-2 rounded-2xl border bg-gradient-to-br px-3 py-3 text-center text-sm transition hover:-translate-y-0.5 sm:min-h-0 sm:flex-row sm:items-center sm:justify-start sm:gap-3 sm:px-4 sm:text-left",
                         item.accent,
                       )}
                     >
                       <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/70">
                         <item.icon className="h-5 w-5" />
                       </div>
-                      <div>
+                      <div className="leading-tight">
                         <p className="font-semibold text-[hsl(24_25%_20%)]">{item.label}</p>
-                        <p className="text-xs text-muted-foreground">{item.description}</p>
+                        <p className="hidden text-xs text-muted-foreground sm:block">{item.description}</p>
                       </div>
                     </button>
                   ))}
@@ -426,12 +479,12 @@ export default function Dashboard() {
                     <p className="text-center text-sm text-muted-foreground">Nenhuma colheita registrada ainda.</p>
                   )}
                   {ultimasColheitas.map((colheita) => (
-                    <div key={colheita.id} className="rounded-2xl border border-slate-100 px-3 py-2">
+                    <div key={colheita.id} className="rounded-xl border border-slate-200/60 bg-slate-50/60 px-3 py-1.5">
                       <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.3em] text-muted-foreground">
                         <span className="font-mono">#{colheita.codigo}</span>
                         <span>{dateTimeFormatter.format(new Date(colheita.data_colheita))}</span>
                       </div>
-                      <div className="mt-2 flex items-center justify-between text-sm">
+                      <div className="mt-1.5 flex items-start justify-between gap-3 text-sm">
                         <div>
                           <p className="font-semibold text-[hsl(24_25%_25%)]">{colheita.panhador.nome}</p>
                           <p className="text-xs text-muted-foreground">
@@ -440,8 +493,16 @@ export default function Dashboard() {
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="text-base font-semibold text-[hsl(24_35%_30%)]">{colheita.peso_kg.toFixed(2)} kg</p>
+                          <p className="text-sm font-semibold text-[hsl(24_35%_30%)]">{colheita.peso_kg.toFixed(2)} kg</p>
                           <p className="text-xs text-muted-foreground">
+                            {colheita.quantidade_balaios != null ? `${colheita.quantidade_balaios.toFixed(2)} balaios` : "- balaios"}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {colheita.quantidade_balaios && colheita.quantidade_balaios > 0
+                              ? `Média ${(colheita.peso_kg / colheita.quantidade_balaios).toFixed(2)} kg/balaio`
+                              : "Média -"}
+                          </p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
                             {colheita.valor_total != null ? currencyFormatter.format(colheita.valor_total) : "Valor pendente"}
                           </p>
                         </div>

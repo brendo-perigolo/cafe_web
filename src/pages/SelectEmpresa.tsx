@@ -5,26 +5,38 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { MASTER_EMAIL } from "@/constants/master";
+import { useEffect } from "react";
 
 export default function SelectEmpresa() {
   const { companies, companiesLoading, selectCompany, signOut, user } = useAuth();
   const navigate = useNavigate();
   const isMaster = user?.email?.toLowerCase() === MASTER_EMAIL.toLowerCase();
 
+  const getReturnPath = () => {
+    const stored = window.localStorage.getItem("safra:last_path") || window.sessionStorage.getItem("safra:last_path");
+    if (!stored || stored === "/auth" || stored === "/selecionar-empresa") return "/dashboard";
+    return stored;
+  };
+
   const handleSelect = (empresaId: string) => {
     selectCompany(empresaId);
-    navigate("/dashboard", { replace: true });
+    navigate(getReturnPath(), { replace: true });
   };
+
+  useEffect(() => {
+    if (companiesLoading) return;
+    if (companies.length !== 1) return;
+    handleSelect(companies[0].id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companiesLoading, companies.length]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background via-muted/30 to-background p-6">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
         <div className="text-center">
-          <p className="text-sm uppercase tracking-[0.2em] text-muted-foreground">Selecionar empresa</p>
-          <h1 className="mt-2 text-3xl font-bold">Escolha a operação que deseja acessar</h1>
-          <p className="mt-2 text-muted-foreground">
-            Vinculamos seu acesso às empresas liberadas pelo administrador. Escolha uma para continuar.
-          </p>
+          <p className="text-sm uppercase tracking-[0.2em] text-muted-foreground">Painel de empresa</p>
+          <h1 className="mt-2 text-3xl font-bold">Selecione a empresa para entrar</h1>
+          <p className="mt-2 text-muted-foreground">Você tem acesso a mais de uma empresa. Escolha uma para continuar.</p>
         </div>
 
         {companiesLoading ? (
@@ -57,22 +69,29 @@ export default function SelectEmpresa() {
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
             {companies.map((empresa) => (
-              <Card key={empresa.id} className="shadow-coffee">
-                <CardHeader className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-xl">{empresa.nome}</CardTitle>
-                    <Badge variant={empresa.ativa ? "default" : "secondary"}>{empresa.ativa ? "Ativa" : "Inativa"}</Badge>
+              <Card key={empresa.id} className="shadow-coffee flex h-full flex-col">
+                <CardHeader className="space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <CardTitle className="text-xl leading-tight">{empresa.nome}</CardTitle>
+                    <Badge
+                      className="shrink-0"
+                      variant={empresa.ativa ? "default" : "secondary"}
+                    >
+                      {empresa.ativa ? "Ativa" : "Inativa"}
+                    </Badge>
                   </div>
-                  {empresa.responsavel && (
-                    <CardDescription>Responsável: {empresa.responsavel}</CardDescription>
-                  )}
+                  <div className="space-y-1">
+                    <CardDescription className="min-h-5">
+                      {empresa.responsavel ? `Responsável: ${empresa.responsavel}` : "\u00A0"}
+                    </CardDescription>
+                    {empresa.cnpj ? (
+                      <CardDescription>CNPJ: {empresa.cnpj}</CardDescription>
+                    ) : null}
+                  </div>
                 </CardHeader>
-                <CardContent className="flex items-center justify-between">
-                  <div className="space-y-1 text-sm text-muted-foreground">
-                    {empresa.email && <p>{empresa.email}</p>}
-                    {empresa.telefone && <p>{empresa.telefone}</p>}
-                  </div>
-                  <Button onClick={() => handleSelect(empresa.id)}>
+
+                <CardContent className="mt-auto flex items-end justify-end">
+                  <Button className="shrink-0" onClick={() => handleSelect(empresa.id)}>
                     <Building2 className="mr-2 h-4 w-4" />
                     Entrar
                   </Button>

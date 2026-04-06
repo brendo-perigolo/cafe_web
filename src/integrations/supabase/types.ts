@@ -16,16 +16,22 @@ export type Database = {
     Tables: {
       colheitas: {
         Row: {
+          aparelho_token: string | null
           codigo: string
           created_at: string
           data_colheita: string
           id: string
           empresa_id: string
+          propriedade_id: string
+          lavoura_id: string
           pagamento_lote: string | null
+          pagamento_metodo: string | null
+          pagamento_cheque_numero: string | null
           pago_em: string | null
           pago_por: string | null
           numero_bag: string | null
           panhador_id: string
+          pendente_aparelho: boolean
           peso_kg: number
           preco_por_kg: number | null
           preco_por_balaio: number | null
@@ -40,16 +46,22 @@ export type Database = {
           valor_total: number | null
         }
         Insert: {
+          aparelho_token?: string | null
           codigo?: string
           created_at?: string
           data_colheita?: string
           id?: string
           empresa_id: string
+          propriedade_id?: string | null
+          lavoura_id?: string | null
           pagamento_lote?: string | null
+          pagamento_metodo?: string | null
+          pagamento_cheque_numero?: string | null
           pago_em?: string | null
           pago_por?: string | null
           numero_bag?: string | null
           panhador_id: string
+          pendente_aparelho?: boolean
           peso_kg: number
           preco_por_kg?: number | null
           preco_por_balaio?: number | null
@@ -64,16 +76,22 @@ export type Database = {
           valor_total?: number | null
         }
         Update: {
+          aparelho_token?: string | null
           codigo?: string
           created_at?: string
           data_colheita?: string
           id?: string
           empresa_id?: string
+          propriedade_id?: string | null
+          lavoura_id?: string | null
           pagamento_lote?: string | null
+          pagamento_metodo?: string | null
+          pagamento_cheque_numero?: string | null
           pago_em?: string | null
           pago_por?: string | null
           numero_bag?: string | null
           panhador_id?: string
+          pendente_aparelho?: boolean
           peso_kg?: number
           preco_por_kg?: number | null
           preco_por_balaio?: number | null
@@ -96,6 +114,20 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "colheitas_propriedade_id_fkey"
+            columns: ["propriedade_id"]
+            isOneToOne: false
+            referencedRelation: "propriedades"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "colheitas_lavoura_id_fkey"
+            columns: ["lavoura_id"]
+            isOneToOne: false
+            referencedRelation: "lavouras"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "colheitas_panhador_id_fkey"
             columns: ["panhador_id"]
             isOneToOne: false
@@ -107,6 +139,44 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      aparelhos: {
+        Row: {
+          id: string
+          empresa_id: string
+          token: string
+          nome: string
+          ativo: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          empresa_id: string
+          token: string
+          nome: string
+          ativo?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          empresa_id?: string
+          token?: string
+          nome?: string
+          ativo?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "aparelhos_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
             referencedColumns: ["id"]
           },
         ]
@@ -205,6 +275,7 @@ export type Database = {
       empresas_config: {
         Row: {
           empresa_id: string
+          kg_por_litro: number
           kg_por_balaio: number
           kg_por_saco: number
           preco_padrao_por_saco: number
@@ -214,6 +285,7 @@ export type Database = {
         }
         Insert: {
           empresa_id: string
+          kg_por_litro?: number
           kg_por_balaio?: number
           kg_por_saco?: number
           preco_padrao_por_saco?: number
@@ -223,6 +295,7 @@ export type Database = {
         }
         Update: {
           empresa_id?: string
+          kg_por_litro?: number
           kg_por_balaio?: number
           kg_por_saco?: number
           preco_padrao_por_saco?: number
@@ -396,6 +469,196 @@ export type Database = {
             columns: ["alterado_por"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      propriedades: {
+        Row: {
+          id: string
+          empresa_id: string
+          nome: string | null
+          endereco: string | null
+          ativo: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          empresa_id: string
+          nome?: string | null
+          endereco?: string | null
+          ativo?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          empresa_id?: string
+          nome?: string | null
+          endereco?: string | null
+          ativo?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "propriedades_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lavouras: {
+        Row: {
+          id: string
+          empresa_id: string
+          propriedade_id: string
+          nome: string
+          quantidade_pe_de_cafe: number
+          ativo: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          empresa_id: string
+          propriedade_id: string
+          nome: string
+          quantidade_pe_de_cafe?: number
+          ativo?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          empresa_id?: string
+          propriedade_id?: string
+          nome?: string
+          quantidade_pe_de_cafe?: number
+          ativo?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lavouras_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lavouras_propriedade_id_fkey"
+            columns: ["propriedade_id"]
+            isOneToOne: false
+            referencedRelation: "propriedades"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      planos_contas: {
+        Row: {
+          id: string
+          empresa_id: string
+          nome: string
+          nome_lower: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          empresa_id: string
+          nome: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          empresa_id?: string
+          nome?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "planos_contas_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      despesas: {
+        Row: {
+          id: string
+          empresa_id: string
+          criado_por: string
+          valor: number
+          data_vencimento: string
+          tipo_servico: string | null
+          plano_conta_id: string
+          pagamento_metodo: string | null
+          colheita_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          empresa_id: string
+          criado_por: string
+          valor: number
+          data_vencimento: string
+          tipo_servico?: string | null
+          plano_conta_id: string
+          pagamento_metodo?: string | null
+          colheita_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          empresa_id?: string
+          criado_por?: string
+          valor?: number
+          data_vencimento?: string
+          tipo_servico?: string | null
+          plano_conta_id?: string
+          pagamento_metodo?: string | null
+          colheita_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "despesas_colheita_id_fkey"
+            columns: ["colheita_id"]
+            isOneToOne: false
+            referencedRelation: "colheitas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "despesas_criado_por_fkey"
+            columns: ["criado_por"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "despesas_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "despesas_plano_conta_id_fkey"
+            columns: ["plano_conta_id"]
+            isOneToOne: false
+            referencedRelation: "planos_contas"
             referencedColumns: ["id"]
           },
         ]
