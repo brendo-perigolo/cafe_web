@@ -421,30 +421,36 @@ export default function Dashboard() {
         <div className="min-w-0 flex-1">
           <Navbar />
           <main className="px-4 py-5 sm:px-6 sm:py-8 lg:px-10">
-          <div className="mb-2 flex items-center justify-end text-[11px] text-muted-foreground">
-            <span className="font-mono">v{__APP_VERSION__}</span>
-          </div>
           <section className="grid gap-4 sm:gap-6 lg:grid-cols-[2fr_1fr]">
             <Card className="rounded-3xl border border-slate-100 bg-white shadow-coffee">
               <CardHeader className="flex flex-col gap-4 pb-0">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <span className="inline-flex w-fit items-center rounded-full bg-[hsl(204_70%_94%)] px-4 py-1 text-xs font-semibold text-[hsl(204_65%_32%)]">
-                    Painel rápido
-                  </span>
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
-                      <span className={cn("h-2.5 w-2.5 rounded-full", isOnline ? "bg-emerald-500" : "bg-rose-500")} />
-                      {isOnline ? "Online" : "Offline"}
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex w-fit items-center rounded-full bg-[hsl(204_70%_94%)] px-4 py-1 text-xs font-semibold text-[hsl(204_65%_32%)]">
+                        Painel rápido
+                      </span>
                     </div>
-                    <Button onClick={handleSync} disabled={!isOnline || syncing} size="sm" className="rounded-full bg-[hsl(196_65%_45%)] text-white hover:bg-[hsl(196_65%_40%)]">
-                      <RefreshCw className={cn("mr-2 h-4 w-4", syncing && "animate-spin")} />
-                      Sincronizar{totalPendentes > 0 ? ` (${totalPendentes})` : ""}
-                    </Button>
+
+                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                      <div className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                        <span className={cn("h-2.5 w-2.5 rounded-full", isOnline ? "bg-emerald-500" : "bg-rose-500")} />
+                        {isOnline ? "Online" : "Offline"}
+                      </div>
+                      <span className="font-mono">v{__APP_VERSION__}</span>
+                    </div>
                   </div>
-                </div>
-                <div>
-                  <CardTitle className="font-display text-2xl text-[hsl(210_30%_20%)]">Navegação rápida</CardTitle>
-                  <CardDescription>Opções principais do sistema</CardDescription>
+
+                  <Button
+                    onClick={handleSync}
+                    disabled={!isOnline || syncing}
+                    size="icon"
+                    className="h-9 w-9 rounded-full bg-[hsl(196_65%_45%)] text-white hover:bg-[hsl(196_65%_40%)]"
+                    aria-label={totalPendentes > 0 ? `Sincronizar (${totalPendentes} pendentes)` : "Sincronizar"}
+                    title={totalPendentes > 0 ? `Sincronizar (${totalPendentes} pendentes)` : "Sincronizar"}
+                  >
+                    <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
+                  </Button>
                 </div>
               </CardHeader>
               <CardContent className="pt-6">

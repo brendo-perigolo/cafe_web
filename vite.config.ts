@@ -45,9 +45,9 @@ export default defineConfig(({ mode }) => {
         start_url: "/",
         scope: "/",
         display: "standalone",
-        display_override: ["fullscreen", "standalone"],
-        background_color: "#F5F7FB",
-        theme_color: "#F5F7FB",
+        display_override: ["standalone"],
+        background_color: "#ffffff",
+        theme_color: "#ffffff",
         icons: [
           {
             src: "/pwa-192.png",
