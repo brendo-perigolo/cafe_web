@@ -39,8 +39,8 @@ export default defineConfig(({ mode }) => ({
         scope: "/",
         display: "standalone",
         display_override: ["fullscreen", "standalone"],
-        background_color: "#ffffff",
-        theme_color: "#5D4037",
+        background_color: "#F5F7FB",
+        theme_color: "#F5F7FB",
         icons: [
           {
             src: "/pwa-192.png",
