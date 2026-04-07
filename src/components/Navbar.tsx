@@ -28,7 +28,7 @@ export const Navbar = () => {
   ] as const;
 
   return (
-    <nav className="sticky top-0 z-50 border-b bg-card shadow-coffee">
+    <nav className="sticky top-0 z-50 border-b bg-card shadow-coffee pt-[env(safe-area-inset-top)]">
       <div className="container mx-auto px-4 py-3">
         {/* Mobile header */}
         <div className="flex items-center justify-between gap-2 sm:hidden">
