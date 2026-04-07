@@ -6,7 +6,14 @@ import { componentTagger } from "lovable-tagger";
 import { VitePWA } from "vite-plugin-pwa";
 
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => ({
+export default defineConfig(({ mode }) => {
+  const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, "package.json"), "utf-8")) as { version?: string };
+  const appVersion = typeof pkg.version === "string" ? pkg.version : "0.0.0";
+
+  return {
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+  },
   server: {
     host: "0.0.0.0",
     port: 8080,
@@ -67,4 +74,5 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-}));
+  };
+});

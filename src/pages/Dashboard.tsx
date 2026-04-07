@@ -421,6 +421,9 @@ export default function Dashboard() {
         <div className="min-w-0 flex-1">
           <Navbar />
           <main className="px-4 py-5 sm:px-6 sm:py-8 lg:px-10">
+          <div className="mb-2 flex items-center justify-end text-[11px] text-muted-foreground">
+            <span className="font-mono">v{__APP_VERSION__}</span>
+          </div>
           <section className="grid gap-4 sm:gap-6 lg:grid-cols-[2fr_1fr]">
             <Card className="rounded-3xl border border-slate-100 bg-white shadow-coffee">
               <CardHeader className="flex flex-col gap-4 pb-0">
