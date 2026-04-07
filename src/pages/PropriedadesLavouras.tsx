@@ -610,10 +610,10 @@ export default function PropriedadesLavouras() {
     <div className="min-h-screen bg-background">
       <Navbar />
 
-      <main className="container mx-auto px-4 py-6 space-y-6">
+      <main className="container mx-auto px-4 py-4 space-y-4 sm:py-6 sm:space-y-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold">Propriedades e Lavouras</h1>
+            <h1 className="text-xl font-semibold sm:text-2xl">Propriedades e Lavouras</h1>
             <p className="text-sm text-muted-foreground">
               Visualize as propriedades e as lavouras vinculadas. Cadastre/edite usando os botões.
             </p>
@@ -622,7 +622,7 @@ export default function PropriedadesLavouras() {
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">Safra</span>
               <Select value={String(selectedSafra)} onValueChange={(v) => setSelectedSafra(Number(v))}>
-                <SelectTrigger className="w-[140px]">
+                <SelectTrigger className="w-[120px] sm:w-[140px]">
                   <SelectValue placeholder="Safra" />
                 </SelectTrigger>
                 <SelectContent>
@@ -634,19 +634,24 @@ export default function PropriedadesLavouras() {
                 </SelectContent>
               </Select>
             </div>
-            <Button type="button" variant={showInativos ? "default" : "outline"} onClick={() => setShowInativos((v) => !v)}>
+            <Button
+              type="button"
+              size="sm"
+              variant={showInativos ? "default" : "outline"}
+              onClick={() => setShowInativos((v) => !v)}
+            >
               {showInativos ? "Mostrando inativos" : "Ocultar inativos"}
             </Button>
-            <Button type="button" onClick={openCreatePropriedade} disabled={!selectedCompany}>
+            <Button type="button" size="sm" onClick={openCreatePropriedade} disabled={!selectedCompany}>
               Cadastrar propriedade
             </Button>
           </div>
         </div>
 
         {loadingPropriedades ? (
-          <div className="rounded-lg border p-4 text-sm text-muted-foreground">Carregando...</div>
+          <div className="rounded-lg border p-3 text-sm text-muted-foreground">Carregando...</div>
         ) : propriedadesFiltradas.length === 0 ? (
-          <div className="rounded-lg border p-4 text-sm text-muted-foreground">Nenhuma propriedade cadastrada</div>
+          <div className="rounded-lg border p-3 text-sm text-muted-foreground">Nenhuma propriedade cadastrada</div>
         ) : (
           <Card className="shadow-coffee">
             <CardHeader className="space-y-2">
@@ -656,7 +661,115 @@ export default function PropriedadesLavouras() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto rounded-2xl border border-slate-100">
+              <div className="space-y-3 sm:hidden">
+                {propriedadesFiltradas.map((propriedade) => {
+                  const propAtivo = (propriedade as unknown as { ativo?: boolean }).ativo !== false;
+                  const sub = lavourasPorPropriedadeFiltradas.get(propriedade.id) ?? [];
+
+                  const totalKgProp = producaoPorPropriedade.get(propriedade.id) ?? 0;
+                  const totalBalaiosProp = balaiosPorPropriedade.get(propriedade.id) ?? 0;
+                  const pesProp = pesPorPropriedade.get(propriedade.id) ?? 0;
+
+                  return (
+                    <div key={propriedade.id} className="rounded-2xl border border-slate-100 bg-white p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="min-w-0 truncate text-sm font-semibold">
+                            {propriedade.nome ?? "(sem nome)"} {!propAtivo ? "(inativo)" : ""}
+                          </p>
+                          <p className="mt-0.5 min-w-0 truncate text-xs text-muted-foreground">{propriedade.endereco ?? "—"}</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                        <div className="rounded-xl bg-slate-50 px-3 py-2">
+                          <p className="text-muted-foreground">Pés</p>
+                          <p className="font-medium leading-none">{pesProp}</p>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 px-3 py-2">
+                          <p className="text-muted-foreground">Produção</p>
+                          <p className="font-medium leading-none truncate">{formatKg(totalKgProp)}</p>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 px-3 py-2">
+                          <p className="text-muted-foreground">kg/pé</p>
+                          <p className="font-medium leading-none truncate">{formatKgPorPe(totalKgProp, pesProp)}</p>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 px-3 py-2">
+                          <p className="text-muted-foreground">Balaios</p>
+                          <p className="font-medium leading-none truncate">{formatBalaios(totalBalaiosProp)}</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button type="button" variant="ghost" size="sm" onClick={() => openEditPropriedade(propriedade)}>
+                          Editar
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={propAtivo ? "outline" : "default"}
+                          size="sm"
+                          onClick={() => togglePropriedadeAtivo(propriedade)}
+                        >
+                          {propAtivo ? "Inativar" : "Ativar"}
+                        </Button>
+                        <Button type="button" size="sm" onClick={() => openCreateLavoura(propriedade)}>
+                          Cadastrar lavoura
+                        </Button>
+                      </div>
+
+                      <div className="mt-4 space-y-2">
+                        <p className="text-xs font-medium text-muted-foreground">Lavouras</p>
+                        {loadingLavouras ? (
+                          <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3 text-center text-xs text-muted-foreground">
+                            Carregando lavouras...
+                          </div>
+                        ) : sub.length === 0 ? (
+                          <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3 text-center text-xs text-muted-foreground">
+                            Nenhuma lavoura cadastrada
+                          </div>
+                        ) : (
+                          sub.map((lavoura) => {
+                            const lavAtivo = (lavoura as unknown as { ativo?: boolean }).ativo !== false;
+                            const totalKgLav = producaoPorLavoura.get(lavoura.id) ?? 0;
+                            const totalBalaiosLav = balaiosPorLavoura.get(lavoura.id) ?? 0;
+                            const pesLav = Number(lavoura.quantidade_pe_de_cafe) || 0;
+
+                            return (
+                              <div key={lavoura.id} className="rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2">
+                                <div className="flex flex-wrap items-start justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <p className="min-w-0 truncate text-sm font-medium">
+                                      {lavoura.nome} {!lavAtivo ? "(inativo)" : ""}
+                                    </p>
+                                    <p className="mt-0.5 text-xs text-muted-foreground">
+                                      {pesLav} pés • {formatKg(totalKgLav)} • {formatBalaios(totalBalaiosLav)} balaios
+                                    </p>
+                                  </div>
+                                  <div className="flex flex-wrap gap-2">
+                                    <Button type="button" variant="ghost" size="sm" onClick={() => openEditLavoura(propriedade, lavoura)}>
+                                      Editar
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant={lavAtivo ? "outline" : "default"}
+                                      size="sm"
+                                      onClick={() => toggleLavouraAtivo(lavoura)}
+                                    >
+                                      {lavAtivo ? "Inativar" : "Ativar"}
+                                    </Button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="hidden overflow-x-auto rounded-2xl border border-slate-100 sm:block">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-slate-50/80">

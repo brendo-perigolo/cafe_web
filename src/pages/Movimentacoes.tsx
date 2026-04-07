@@ -1039,72 +1039,68 @@ export default function Movimentacoes() {
   return (
     <div className="min-h-screen bg-[hsl(210_45%_97%)]">
       <Navbar />
-      <main className="w-full px-2 sm:px-4 lg:px-6 py-8 space-y-8">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="text-lg font-bold text-[hsl(24_25%_18%)] sm:text-3xl">Movimentações colheitas</h1>
-          </div>
-          <Button variant="outline" className="rounded-full" onClick={loadLancamentos} disabled={loading}>
+      <main className="w-full px-2 sm:px-4 lg:px-6 py-4 space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-base font-bold text-[hsl(24_25%_18%)] sm:text-2xl">Movimentações colheitas</h1>
+          <Button variant="outline" size="sm" className="rounded-full" onClick={loadLancamentos} disabled={loading}>
             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             Atualizar
           </Button>
         </div>
 
-        <section className="grid grid-cols-3 gap-2 sm:gap-4 md:grid-cols-3 lg:grid-cols-5">
+        <section className="grid grid-cols-2 gap-2">
           <Card className="border border-slate-100 bg-white">
-            <CardContent className="space-y-0.5 py-3 sm:space-y-1 sm:py-5">
+            <CardContent className="space-y-0.5 py-2.5 overflow-hidden">
               <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground sm:text-xs sm:tracking-[0.3em]">Volume total</p>
-              <div className="flex items-end justify-between">
-                <p className="font-display text-lg text-[hsl(24_25%_20%)] sm:text-3xl">{totalPeso.toFixed(2)} kg</p>
-                <Package className="h-4 w-4 text-[hsl(196_65%_40%)] sm:h-5 sm:w-5" />
+              <div className="flex items-end justify-between gap-2">
+                <p className="min-w-0 flex-1 truncate font-display text-base leading-none text-[hsl(24_25%_20%)] sm:text-2xl">
+                  {totalPeso.toFixed(2)} kg
+                </p>
+                <Package className="h-4 w-4 shrink-0 text-[hsl(196_65%_40%)]" />
               </div>
               <p className="hidden text-xs text-muted-foreground sm:block">Somatório dos registros carregados</p>
             </CardContent>
           </Card>
           <Card className="border border-slate-100 bg-white">
-            <CardContent className="space-y-0.5 py-3 sm:space-y-1 sm:py-5">
+            <CardContent className="space-y-0.5 py-2.5 overflow-hidden">
               <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground sm:text-xs sm:tracking-[0.3em]">Total balaios</p>
-              <div className="flex items-end justify-between">
-                <p className="font-display text-lg text-[hsl(196_65%_35%)] sm:text-3xl">{totalBalaios.toFixed(2)}</p>
-                <Package className="h-4 w-4 text-[hsl(196_65%_40%)] sm:h-5 sm:w-5" />
+              <div className="flex items-end justify-between gap-2">
+                <p className="min-w-0 flex-1 truncate font-display text-base leading-none text-[hsl(196_65%_35%)] sm:text-2xl">
+                  {totalBalaios.toFixed(2)}
+                </p>
+                <Package className="h-4 w-4 shrink-0 text-[hsl(196_65%_40%)]" />
               </div>
               <p className="hidden text-xs text-muted-foreground sm:block">Estimado com kg por balaio configurado</p>
             </CardContent>
           </Card>
           <Card className="border border-slate-100 bg-white">
-            <CardContent className="space-y-0.5 py-3 sm:space-y-1 sm:py-5">
+            <CardContent className="space-y-0.5 py-2.5 overflow-hidden">
               <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground sm:text-xs sm:tracking-[0.3em]">Valor fechado</p>
-              <div className="flex items-end justify-between">
-                <p className="font-display text-lg text-[hsl(152_45%_32%)] sm:text-3xl">{currencyFormatter.format(totalValorFechado)}</p>
-                <Coins className="h-4 w-4 text-[hsl(152_45%_40%)] sm:h-5 sm:w-5" />
+              <div className="flex items-end justify-between gap-2">
+                <p className="min-w-0 flex-1 truncate font-display text-base leading-none text-[hsl(152_45%_32%)] sm:text-2xl">
+                  {currencyFormatter.format(totalValorFechado)}
+                </p>
+                <Coins className="h-4 w-4 shrink-0 text-[hsl(152_45%_40%)]" />
               </div>
               <p className="hidden text-xs text-muted-foreground sm:block">Considera lançamentos com valor informado</p>
             </CardContent>
           </Card>
           <Card className="border border-slate-100 bg-white">
-            <CardContent className="space-y-0.5 py-3 sm:space-y-1 sm:py-5">
+            <CardContent className="space-y-0.5 py-2.5 overflow-hidden">
               <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground sm:text-xs sm:tracking-[0.3em]">Total pago</p>
-              <div className="flex items-end justify-between">
-                <p className="font-display text-lg text-[hsl(152_45%_32%)] sm:text-3xl">{currencyFormatter.format(totalPago)}</p>
-                <Coins className="h-4 w-4 text-[hsl(152_45%_40%)] sm:h-5 sm:w-5" />
+              <div className="flex items-end justify-between gap-2">
+                <p className="min-w-0 flex-1 truncate font-display text-base leading-none text-[hsl(152_45%_32%)] sm:text-2xl">
+                  {currencyFormatter.format(totalPago)}
+                </p>
+                <Coins className="h-4 w-4 shrink-0 text-[hsl(152_45%_40%)]" />
               </div>
               <p className="hidden text-xs text-muted-foreground sm:block">Soma apenas itens marcados como pagos</p>
-            </CardContent>
-          </Card>
-          <Card className="border border-slate-100 bg-white">
-            <CardContent className="space-y-0.5 py-3 sm:space-y-1 sm:py-5">
-              <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground sm:text-xs sm:tracking-[0.3em]">Pendentes</p>
-              <div className="flex items-end justify-between">
-                <p className="font-display text-lg text-[hsl(14_70%_45%)] sm:text-3xl">{pendentes}</p>
-                <AlertCircle className="h-4 w-4 text-[hsl(14_70%_45%)] sm:h-5 sm:w-5" />
-              </div>
-              <p className="hidden text-xs text-muted-foreground sm:block">Lançamentos aguardando valor final</p>
             </CardContent>
           </Card>
         </section>
 
         <Card className="rounded-3xl border border-slate-100 bg-white shadow-coffee">
-          <CardHeader className="gap-4">
+          <CardHeader className="gap-3 py-4">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex flex-wrap gap-2 lg:ml-auto">
                 <Button

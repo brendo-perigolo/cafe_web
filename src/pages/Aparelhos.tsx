@@ -155,14 +155,14 @@ export default function Aparelhos() {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      <main className="container mx-auto px-4 py-6">
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+      <main className="container mx-auto px-4 py-4 sm:py-6">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 sm:mb-6">
           <div className="flex items-center gap-3">
             <div className="rounded-full bg-primary/10 p-3 text-primary">
               <Smartphone className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="text-2xl font-semibold">Aparelhos</h1>
+              <h1 className="text-xl font-semibold sm:text-2xl">Aparelhos</h1>
               <p className="text-sm text-muted-foreground">Cadastre e ative/desative equipamentos</p>
             </div>
           </div>
@@ -213,7 +213,41 @@ export default function Aparelhos() {
               <CardDescription>Mostrando todos os aparelhos desta empresa</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto rounded-2xl border border-slate-100">
+              <div className="space-y-3 sm:hidden">
+                {loading ? (
+                  <div className="rounded-2xl border p-3 text-center text-sm text-muted-foreground">Carregando...</div>
+                ) : aparelhos.length === 0 ? (
+                  <div className="rounded-2xl border p-3 text-center text-sm text-muted-foreground">Nenhum aparelho cadastrado</div>
+                ) : (
+                  aparelhos.map((aparelho) => {
+                    const isThisDevice = aparelho.token === deviceToken;
+                    return (
+                      <div key={aparelho.id} className="rounded-2xl border border-slate-100 bg-white p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className="min-w-0 truncate font-medium">{aparelho.nome}</p>
+                              {isThisDevice && <Badge className="bg-slate-100 text-slate-700">Este</Badge>}
+                            </div>
+                            <p className="mt-1 min-w-0 truncate font-mono text-[11px] text-muted-foreground">{aparelho.token}</p>
+                            <div className="mt-2">
+                              {aparelho.ativo ? (
+                                <Badge className="bg-emerald-100 text-emerald-700">Ativo</Badge>
+                              ) : (
+                                <Badge className="bg-amber-100 text-amber-700">Inativo</Badge>
+                              )}
+                            </div>
+                          </div>
+
+                          <Switch checked={aparelho.ativo} onCheckedChange={(v) => handleToggleAtivo(aparelho.id, v)} />
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              <div className="hidden overflow-x-auto rounded-2xl border border-slate-100 sm:block">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-slate-50/80">

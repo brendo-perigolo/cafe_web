@@ -420,8 +420,8 @@ export default function Dashboard() {
         </aside>
         <div className="min-w-0 flex-1">
           <Navbar />
-          <main className="px-4 py-8 sm:px-6 lg:px-10">
-          <section className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+          <main className="px-4 py-5 sm:px-6 sm:py-8 lg:px-10">
+          <section className="grid gap-4 sm:gap-6 lg:grid-cols-[2fr_1fr]">
             <Card className="rounded-3xl border border-slate-100 bg-white shadow-coffee">
               <CardHeader className="flex flex-col gap-4 pb-0">
                 <div className="flex flex-wrap items-center justify-between gap-4">
@@ -470,11 +470,11 @@ export default function Dashboard() {
 
             <Card className="rounded-3xl border border-slate-100 bg-white shadow-coffee">
               <CardHeader className="pb-4">
-                <CardTitle className="font-display text-xl">Últimas colheitas</CardTitle>
+                <CardTitle className="font-display text-lg sm:text-xl">Últimas colheitas</CardTitle>
                 <CardDescription>Atualizado em tempo real</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="max-h-[360px] space-y-3 overflow-y-auto pr-2">
+                <div className="max-h-[260px] space-y-2 overflow-y-auto pr-2 sm:max-h-[360px] sm:space-y-3">
                   {ultimasColheitas.length === 0 && (
                     <p className="text-center text-sm text-muted-foreground">Nenhuma colheita registrada ainda.</p>
                   )}
@@ -538,10 +538,10 @@ export default function Dashboard() {
             </Card>
           )}
 
-          <section className="mt-8 grid gap-6 xl:grid-cols-3">
+          <section className="mt-6 grid gap-4 sm:mt-8 sm:gap-6 xl:grid-cols-3">
             <Card className="rounded-3xl border border-slate-100 bg-white shadow-coffee">
               <CardHeader>
-                <CardTitle className="font-display text-xl">Volume diário</CardTitle>
+                <CardTitle className="font-display text-lg sm:text-xl">Volume diário</CardTitle>
                 <CardDescription>Kg registrados por dia</CardDescription>
               </CardHeader>
               <CardContent>
@@ -550,7 +550,7 @@ export default function Dashboard() {
                 ) : (
                   <ChartContainer
                     config={{ kg: { label: "Total colhido", color: "hsl(196,65%,40%)" } }}
-                    className="!aspect-auto h-[260px] w-full overflow-visible"
+                    className="!aspect-auto h-[200px] w-full overflow-visible sm:h-[260px]"
                   >
                     <AreaChart data={colheitasSeries} margin={{ left: 0, right: 0, top: 10, bottom: 0 }}>
                       <defs>
@@ -573,7 +573,7 @@ export default function Dashboard() {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle className="font-display text-xl">Total por bag</CardTitle>
+                    <CardTitle className="font-display text-lg sm:text-xl">Total por bag</CardTitle>
                     <CardDescription>Distribuição das pesagens</CardDescription>
                   </div>
                   <Package className="h-5 w-5 text-[hsl(152_45%_40%)]" />
@@ -585,7 +585,7 @@ export default function Dashboard() {
                 ) : (
                   <ChartContainer
                     config={{ peso: { label: "Peso", color: "hsl(152,45%,40%)" } }}
-                    className="!aspect-auto h-[260px] w-full overflow-visible"
+                    className="!aspect-auto h-[200px] w-full overflow-visible sm:h-[260px]"
                   >
                     <BarChart data={bagsDistribuicao}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -600,7 +600,7 @@ export default function Dashboard() {
 
             <Card className="rounded-3xl border border-slate-100 bg-white shadow-coffee overflow-hidden">
               <CardHeader>
-                <CardTitle className="font-display text-xl">Resumo geral</CardTitle>
+                <CardTitle className="font-display text-lg sm:text-xl">Resumo geral</CardTitle>
                 <CardDescription>Proporção de registros</CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col items-center gap-5">
@@ -609,7 +609,7 @@ export default function Dashboard() {
                 ) : (
                   <ChartContainer
                     config={{ value: { label: "Registros", color: "hsl(24,45%,45%)" } }}
-                    className="!aspect-auto h-48 w-full max-w-[260px] overflow-visible"
+                    className="!aspect-auto h-44 w-full max-w-[240px] overflow-visible sm:h-48 sm:max-w-[260px]"
                   >
                     <PieChart>
                       <Pie data={donutData} dataKey="value" nameKey="name" innerRadius={60} outerRadius={90} paddingAngle={4}>
@@ -621,9 +621,9 @@ export default function Dashboard() {
                     </PieChart>
                   </ChartContainer>
                 )}
-                <div className="grid w-full gap-2 text-sm">
+                <div className="grid w-full gap-2 text-xs sm:text-sm">
                   {donutData.map((item, index) => (
-                    <div key={item.name} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
+                    <div key={item.name} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-1.5 sm:py-2">
                       <div className="flex items-center gap-2">
                         <span className="h-2 w-2 rounded-full" style={{ backgroundColor: donutColors[index % donutColors.length] }}></span>
                         {item.name}
@@ -636,20 +636,20 @@ export default function Dashboard() {
             </Card>
           </section>
 
-          <section className="mt-8 grid gap-6 lg:grid-cols-2">
+          <section className="mt-6 grid gap-4 sm:mt-8 sm:gap-6 lg:grid-cols-2">
             <Card className="rounded-3xl border border-slate-100 bg-white shadow-coffee">
               <CardHeader>
-                <CardTitle className="font-display text-xl">Ranking de panhadores</CardTitle>
+                <CardTitle className="font-display text-lg sm:text-xl">Ranking de panhadores</CardTitle>
                 <CardDescription>Top 5 por volume colhido</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-3 sm:space-y-4">
                 {rankingPanhadores.length === 0 && (
                   <p className="py-6 text-center text-sm text-muted-foreground">Registre colheitas para ver o ranking.</p>
                 )}
                 {rankingPanhadores.map((item) => (
-                  <div key={item.nome} className="rounded-2xl border border-slate-100 p-4">
+                  <div key={item.nome} className="rounded-2xl border border-slate-100 p-3 sm:p-4">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[hsl(196_65%_45%)]/10 text-sm font-semibold text-[hsl(196_65%_35%)]">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[hsl(196_65%_45%)]/10 text-sm font-semibold text-[hsl(196_65%_35%)] sm:h-10 sm:w-10">
                         {item.position}
                       </div>
                       <div className="flex-1">
@@ -667,13 +667,13 @@ export default function Dashboard() {
 
             <Card className="rounded-3xl border border-slate-100 bg-white shadow-coffee">
               <CardHeader>
-                <CardTitle className="font-display text-xl">Resumo de bags</CardTitle>
+                <CardTitle className="font-display text-lg sm:text-xl">Resumo de bags</CardTitle>
                 <CardDescription>Média e principais bolsas</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="rounded-2xl bg-slate-50 p-4">
+                <div className="rounded-2xl bg-slate-50 p-3 sm:p-4">
                   <p className="text-xs uppercase tracking-[0.4em] text-muted-foreground">Média por bag</p>
-                  <p className="font-display text-3xl text-[hsl(24_35%_25%)]">{mediaPorBag.toFixed(1)} kg</p>
+                  <p className="font-display text-2xl text-[hsl(24_35%_25%)] sm:text-3xl">{mediaPorBag.toFixed(1)} kg</p>
                   <p className="text-xs text-muted-foreground">{uniqueBagsCount} bags registrados</p>
                 </div>
                 <div className="space-y-3">
@@ -681,7 +681,7 @@ export default function Dashboard() {
                     <p className="text-sm text-muted-foreground">Ainda não há bags suficientes para listar.</p>
                   )}
                   {bagsDistribuicao.map((bag) => (
-                    <div key={bag.bag} className="flex items-center justify-between rounded-xl border border-slate-100 px-3 py-2 text-sm">
+                    <div key={bag.bag} className="flex items-center justify-between rounded-xl border border-slate-100 px-3 py-1.5 text-xs sm:py-2 sm:text-sm">
                       <div>
                         <p className="font-semibold text-[hsl(24_35%_25%)]">Bag {bag.bag}</p>
                         <p className="text-xs text-muted-foreground">Volume acumulado</p>
