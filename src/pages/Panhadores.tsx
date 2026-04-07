@@ -110,6 +110,10 @@ export default function Panhadores() {
   const [bagDialogOpen, setBagDialogOpen] = useState(false);
   const [bagTarget, setBagTarget] = useState<Panhador | null>(null);
   const [bagTargetValue, setBagTargetValue] = useState("");
+  const [editNome, setEditNome] = useState("");
+  const [editApelido, setEditApelido] = useState("");
+  const [editCpf, setEditCpf] = useState("");
+  const [editTelefone, setEditTelefone] = useState("");
   const [bagSaving, setBagSaving] = useState(false);
   const [bagReportOpen, setBagReportOpen] = useState(false);
   const [bagHistorico, setBagHistorico] = useState<BagHistoricoRow[]>([]);
@@ -270,17 +274,23 @@ export default function Panhadores() {
     return { hasPendentes, hasPagos, mixed: hasPendentes && hasPagos };
   }, [pagamentoSelectedLancamentos]);
 
-  const pagamentoResumo = useMemo(() => {
-    const list = pagamentoLancamentosFiltrados;
-    const totalKg = list.reduce((sum, it) => sum + (it.peso_kg ?? 0), 0);
-    const totalBalaios = list.reduce((sum, it) => sum + getBalaios(it), 0);
-    const mediaPesoBalaio = totalBalaios > 0 ? totalKg / totalBalaios : 0;
+  const pagamentoLancamentosSemana = useMemo(() => {
+    let list = pagamentoLancamentos ?? [];
+    if (pagamentoSemana.trim()) {
+      const s = pagamentoSemana.trim();
+      list = list.filter((it) => getIsoWeekKey(it.data_colheita) === s);
+    }
+    return list;
+  }, [pagamentoLancamentos, pagamentoSemana]);
+
+  const pagamentoTotais = useMemo(() => {
+    const list = pagamentoLancamentosSemana;
+    const itensPagos = list.filter((it) => it.pago_em != null).length;
+    const itensPendentes = list.filter((it) => it.pago_em == null).length;
     const valorPago = list.reduce((sum, it) => sum + (it.pago_em != null ? (it.valor_total ?? 0) : 0), 0);
     const valorPendente = list.reduce((sum, it) => sum + (it.pago_em == null ? (it.valor_total ?? 0) : 0), 0);
-    const balaiosPagos = list.reduce((sum, it) => sum + (it.pago_em != null ? getBalaios(it) : 0), 0);
-    const balaiosPendentes = list.reduce((sum, it) => sum + (it.pago_em == null ? getBalaios(it) : 0), 0);
-    return { totalKg, totalBalaios, mediaPesoBalaio, valorPago, valorPendente, balaiosPagos, balaiosPendentes };
-  }, [pagamentoLancamentosFiltrados]);
+    return { itensPagos, itensPendentes, valorPago, valorPendente };
+  }, [pagamentoLancamentosSemana]);
 
   const openPagamento = async (panhador: Panhador) => {
     if (!selectedCompany) return;
@@ -1071,6 +1081,10 @@ export default function Panhadores() {
   const openBagDialog = (panhador: Panhador) => {
     setBagTarget(panhador);
     setBagTargetValue(panhador.bag_numero ?? "");
+    setEditNome(panhador.nome ?? "");
+    setEditApelido(panhador.apelido ?? "");
+    setEditCpf(formatCpf(panhador.cpf) ?? "");
+    setEditTelefone(panhador.telefone ?? "");
     setBagDialogOpen(true);
   };
 
@@ -1082,7 +1096,18 @@ export default function Panhadores() {
 
   const handleSaveBag = async () => {
     if (!user || !selectedCompany || !bagTarget) return;
-    if (!bagFieldsSupported) {
+    const normalizedCpf = editCpf.replace(/\D/g, "");
+    const normalizedTelefone = editTelefone.replace(/\D/g, "");
+    const trimmedBag = bagTargetValue.trim();
+    const validated = panhadorSchema.parse({
+      nome: editNome,
+      apelido: editApelido.trim() || undefined,
+      cpf: normalizedCpf ? normalizedCpf : undefined,
+      bagNumero: bagFieldsSupported ? trimmedBag || undefined : undefined,
+      telefone: normalizedTelefone ? normalizedTelefone : undefined,
+    });
+
+    if (!bagFieldsSupported && trimmedBag) {
       toast({
         title: "Bag indisponível",
         description: "Seu banco ainda não tem as colunas de bag. Aplique a migration no Supabase e tente novamente.",
@@ -1090,58 +1115,114 @@ export default function Panhadores() {
       });
       return;
     }
-    const next = bagTargetValue.trim();
-    const nextBag = next ? next : null;
+
+    const nextBag = validated.bagNumero ? validated.bagNumero.trim() : null;
     const prevBag = bagTarget.bag_numero ?? null;
 
-    if ((prevBag ?? "") === (nextBag ?? "")) {
+    const personalChanged =
+      validated.nome !== bagTarget.nome ||
+      (validated.apelido ?? null) !== (bagTarget.apelido ?? null) ||
+      (validated.cpf ?? null) !== (bagTarget.cpf ?? null) ||
+      (validated.telefone ?? null) !== (bagTarget.telefone ?? null);
+
+    const bagChanged = (prevBag ?? "") !== (nextBag ?? "");
+
+    if (!personalChanged && !bagChanged) {
       setBagDialogOpen(false);
       setBagTarget(null);
-      return;
-    }
-
-    if (nextBag && nextBag.length > 60) {
-      toast({ title: "Bag inválida", description: "Número da bag deve ter no máximo 60 caracteres.", variant: "destructive" });
       return;
     }
 
     setBagSaving(true);
     try {
       if (!navigator.onLine) {
-        await setBagForPanhador(bagTarget.id, prevBag, nextBag, "Troca de bag (offline)");
-        toast({ title: "Salvo offline", description: "A bag ficará pendente para sincronizar." });
+        const now = new Date().toISOString();
+        const updatePayload: Record<string, unknown> = {
+          id: bagTarget.id,
+          nome: validated.nome,
+          apelido: validated.apelido ?? null,
+          cpf: validated.cpf ?? null,
+          telefone: validated.telefone ?? null,
+          updated_at: now,
+        };
+        if (bagFieldsSupported) {
+          updatePayload.bag_numero = nextBag;
+          if (bagChanged) updatePayload.bag_atualizado_em = now;
+        }
+        savePendingPanhadorUpdate(selectedCompany.id, updatePayload);
+        setPanhadores((prev) =>
+          prev.map((p) =>
+            p.id === bagTarget.id
+              ? {
+                  ...p,
+                  nome: validated.nome,
+                  apelido: (validated.apelido ?? null) as string | null,
+                  cpf: (validated.cpf ?? null) as string | null,
+                  telefone: (validated.telefone ?? null) as string | null,
+                  bag_numero: bagFieldsSupported ? (nextBag as string | null) : p.bag_numero,
+                  bag_atualizado_em: bagFieldsSupported && bagChanged ? now : p.bag_atualizado_em,
+                }
+              : p,
+          ),
+        );
+        toast({ title: "Salvo offline", description: "As alterações ficarão pendentes para sincronizar." });
         setBagDialogOpen(false);
         setBagTarget(null);
         return;
       }
 
-      const run = async () => {
+      if (personalChanged) {
+        const { error } = await supabase
+          .from("panhadores")
+          .update({
+            nome: validated.nome,
+            apelido: validated.apelido ?? null,
+            cpf: validated.cpf ?? null,
+            telefone: validated.telefone ?? null,
+          })
+          .eq("id", bagTarget.id)
+          .eq("empresa_id", selectedCompany.id);
+        if (error) throw error;
+      }
+
+      const runBag = async () => {
+        if (!bagChanged) return;
         await setBagForPanhador(bagTarget.id, prevBag, nextBag, "Troca de bag");
-        toast({ title: "Bag atualizada", description: "Vínculo de bag atualizado com sucesso." });
-        setBagDialogOpen(false);
-        setBagTarget(null);
-        await loadPanhadores();
       };
 
-      if (nextBag) {
+      if (bagFieldsSupported && bagChanged && nextBag) {
         const owner = await findBagOwner(nextBag, bagTarget.id);
         if (owner) {
           setBagConflictMessage(
             `A bag ${nextBag} já está vinculada ao panhador ${owner.nome}. Deseja transferir esta bag? Ao confirmar, a bag será removida do outro panhador.`,
           );
           setBagConflictConfirm(() => async () => {
-            await detachBagFromOther(owner.id, owner.bag_numero, `Transferida para ${bagTarget.nome}`);
-            await run();
+            await detachBagFromOther(owner.id, owner.bag_numero, `Transferida para ${validated.nome}`);
+            await runBag();
+            toast({ title: "Panhador atualizado", description: "Alterações salvas com sucesso." });
+            setBagDialogOpen(false);
+            setBagTarget(null);
+            await loadPanhadores();
           });
           setBagConflictOpen(true);
           return;
         }
       }
 
-      await run();
+      await runBag();
+      toast({ title: "Panhador atualizado", description: "Alterações salvas com sucesso." });
+      setBagDialogOpen(false);
+      setBagTarget(null);
+      await loadPanhadores();
     } catch (error) {
       console.error("Erro ao atualizar bag:", error);
-      toast({ title: "Erro", description: "Não foi possível atualizar a bag.", variant: "destructive" });
+      const message =
+        error instanceof z.ZodError
+          ? (error.issues?.[0]?.message ?? "Dados inválidos.")
+          : (error as any)?.message
+            ? String((error as any).message)
+            : "Não foi possível salvar as alterações.";
+      toast({ title: "Erro", description: message, variant: "destructive" });
     } finally {
       setBagSaving(false);
     }
@@ -1259,7 +1340,77 @@ export default function Panhadores() {
             />
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto rounded-2xl border border-slate-100">
+            <div className="sm:hidden space-y-2">
+              {panhadoresLoading ? (
+                <div className="rounded-2xl border border-slate-100 bg-white p-3 text-center text-sm text-muted-foreground">
+                  Carregando panhadores...
+                </div>
+              ) : filteredPanhadores.length === 0 ? (
+                <div className="rounded-2xl border border-slate-100 bg-white p-3 text-center text-sm text-muted-foreground">
+                  {panhadores.length === 0
+                    ? "Nenhum panhador cadastrado ainda"
+                    : "Nenhum resultado para o filtro aplicado"}
+                </div>
+              ) : (
+                filteredPanhadores.map((panhador) => (
+                  <Card key={panhador.id} className="overflow-hidden border border-slate-100 bg-white">
+                    <div
+                      className="flex cursor-pointer items-center justify-between gap-3 p-3"
+                      onClick={() => openPagamento(panhador)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") openPagamento(panhador);
+                      }}
+                      title="Ver colheitas / pagamento"
+                    >
+                      <div className="min-w-0 overflow-hidden">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={
+                              panhador.tem_pendencias
+                                ? "h-2.5 w-2.5 shrink-0 rounded-full bg-amber-500"
+                                : "h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500"
+                            }
+                            title={panhador.tem_pendencias ? "Possui pendências" : "Tudo pago"}
+                          />
+                          <div className="truncate text-sm font-semibold text-[hsl(24_25%_18%)]">{panhador.nome}</div>
+                        </div>
+                        <div className="mt-1 truncate text-[10px] text-muted-foreground">Bag #{panhador.bag_numero ?? "—"}</div>
+                      </div>
+
+                      <div className="flex shrink-0 gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openPagamento(panhador);
+                          }}
+                          title="Pagamento"
+                          className="text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50"
+                        >
+                          <Coins className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openBagDialog(panhador);
+                          }}
+                          title="Editar"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
+                ))
+              )}
+            </div>
+
+            <div className="hidden overflow-x-auto rounded-2xl border border-slate-100 sm:block">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-slate-50/80">
@@ -1300,7 +1451,14 @@ export default function Panhadores() {
                               }
                               title={panhador.tem_pendencias ? "Possui pendências" : "Tudo pago"}
                             />
-                            <span>{panhador.nome}</span>
+                            <button
+                              type="button"
+                              className="max-w-[360px] truncate text-left hover:underline"
+                              onClick={() => openPagamento(panhador)}
+                              title="Ver colheitas / pagamento"
+                            >
+                              {panhador.nome}
+                            </button>
                           </div>
                         </TableCell>
                         <TableCell>{panhador.apelido ?? "—"}</TableCell>
@@ -1321,19 +1479,8 @@ export default function Panhadores() {
                             >
                               <Coins className="h-4 w-4" />
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => openPanhadorHistoricoDialog(panhador)}
-                              title="Ver histórico"
-                            >
-                              <FileText className="h-4 w-4" />
-                            </Button>
                             <Button variant="ghost" size="icon" onClick={() => openBagDialog(panhador)}>
                               <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" onClick={() => handleDelete(panhador.id)}>
-                              <Trash2 className="h-4 w-4 text-destructive" />
                             </Button>
                           </div>
                         </TableCell>
@@ -1359,7 +1506,7 @@ export default function Panhadores() {
             }
           }}
         >
-          <DialogContent className="max-w-5xl max-h-[85vh] overflow-hidden">
+          <DialogContent className="top-[6%] translate-y-0 max-w-5xl max-h-[90vh] overflow-hidden">
             <DialogHeader>
               <DialogTitle>{pagamentoTarget ? `Pagamento - ${pagamentoTarget.nome}` : "Pagamento"}</DialogTitle>
               <DialogDescription>
@@ -1367,46 +1514,56 @@ export default function Panhadores() {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              <Card className="rounded-2xl border border-slate-100 bg-slate-50/70">
-                <CardHeader className="py-3">
-                  <CardDescription>Total kg (panhador)</CardDescription>
-                  <CardTitle className="text-xl text-[hsl(24_25%_18%)]">{pagamentoResumo.totalKg.toFixed(2)} kg</CardTitle>
-                </CardHeader>
-              </Card>
-              <Card className="rounded-2xl border border-slate-100 bg-slate-50/70">
-                <CardHeader className="py-3">
-                  <CardDescription>Total balaios (panhador)</CardDescription>
-                  <CardTitle className="text-xl text-[hsl(24_25%_18%)]">{pagamentoResumo.totalBalaios.toFixed(2)}</CardTitle>
-                </CardHeader>
-              </Card>
-              <Card className="rounded-2xl border border-slate-100 bg-slate-50/70">
-                <CardHeader className="py-3">
-                  <CardDescription>Média peso/balaio</CardDescription>
-                  <CardTitle className="text-xl text-[hsl(24_25%_18%)]">{pagamentoResumo.mediaPesoBalaio.toFixed(2)} kg</CardTitle>
-                </CardHeader>
-              </Card>
-              <Card className="rounded-2xl border border-emerald-100 bg-emerald-50/70">
-                <CardHeader className="py-3">
-                  <CardDescription>Valor pago</CardDescription>
-                  <CardTitle className="text-xl text-emerald-800">{currencyFormatter.format(pagamentoResumo.valorPago)}</CardTitle>
-                </CardHeader>
-              </Card>
-              <Card className="rounded-2xl border border-emerald-100 bg-emerald-50/70">
-                <CardHeader className="py-3">
-                  <CardDescription>Balaios pagos</CardDescription>
-                  <CardTitle className="text-xl text-emerald-800">{pagamentoResumo.balaiosPagos.toFixed(2)}</CardTitle>
-                </CardHeader>
-              </Card>
-              <Card className="rounded-2xl border border-amber-100 bg-amber-50/70">
-                <CardHeader className="py-3">
-                  <CardDescription>Pendente p/ pagamento</CardDescription>
-                  <CardTitle className="text-xl text-amber-900">{pagamentoResumo.balaiosPendentes.toFixed(2)}</CardTitle>
-                  <div className="text-xs text-amber-900/80">
-                    {currencyFormatter.format(pagamentoResumo.valorPendente)}
-                  </div>
-                </CardHeader>
-              </Card>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setPagamentoSelectedIds({});
+                  setPagamentoStatusFilter((prev) => (prev === "pagas" ? "todas" : "pagas"));
+                }}
+                className="w-full text-left"
+              >
+                <Card
+                  className={
+                    pagamentoStatusFilter === "pagas"
+                      ? "rounded-2xl border border-emerald-200 bg-emerald-50/70 ring-1 ring-emerald-200"
+                      : "rounded-2xl border border-emerald-100 bg-emerald-50/70"
+                  }
+                >
+                  <CardHeader className="space-y-1 p-3">
+                    <CardDescription className="text-[11px]">Total pago</CardDescription>
+                    <CardTitle className="truncate text-base text-emerald-800">
+                      {currencyFormatter.format(pagamentoTotais.valorPago)}
+                    </CardTitle>
+                    <div className="text-[10px] text-emerald-800/80">{pagamentoTotais.itensPagos} itens</div>
+                  </CardHeader>
+                </Card>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setPagamentoSelectedIds({});
+                  setPagamentoStatusFilter((prev) => (prev === "pendentes" ? "todas" : "pendentes"));
+                }}
+                className="w-full text-left"
+              >
+                <Card
+                  className={
+                    pagamentoStatusFilter === "pendentes"
+                      ? "rounded-2xl border border-amber-200 bg-amber-50/70 ring-1 ring-amber-200"
+                      : "rounded-2xl border border-amber-100 bg-amber-50/70"
+                  }
+                >
+                  <CardHeader className="space-y-1 p-3">
+                    <CardDescription className="text-[11px]">Total pendente</CardDescription>
+                    <CardTitle className="truncate text-base text-amber-900">
+                      {currencyFormatter.format(pagamentoTotais.valorPendente)}
+                    </CardTitle>
+                    <div className="text-[10px] text-amber-900/80">{pagamentoTotais.itensPendentes} itens</div>
+                  </CardHeader>
+                </Card>
+              </button>
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1424,18 +1581,6 @@ export default function Panhadores() {
                     </option>
                   ))}
                 </select>
-
-                <Label className="ml-2 text-sm">Status</Label>
-                <select
-                  className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                  value={pagamentoStatusFilter}
-                  onChange={(e) => setPagamentoStatusFilter(e.target.value as PagamentoStatusFilter)}
-                >
-                  <option value="todas">Todas</option>
-                  <option value="pagas">Pagas</option>
-                  <option value="pendentes">Pendentes</option>
-                </select>
-
               </div>
 
               <div className="flex items-center gap-2">
@@ -1626,6 +1771,91 @@ export default function Panhadores() {
 
             <div className="overflow-hidden rounded-2xl border border-slate-100">
               <div className="max-h-[45vh] overflow-auto">
+
+              <div className="sm:hidden space-y-2 p-2">
+                {pagamentoLoading ? (
+                  <div className="rounded-2xl border border-slate-100 bg-white p-3 text-center text-sm text-muted-foreground">
+                    Carregando lançamentos...
+                  </div>
+                ) : pagamentoLancamentosFiltrados.length === 0 ? (
+                  <div className="rounded-2xl border border-slate-100 bg-white p-3 text-center text-sm text-muted-foreground">
+                    Nenhum lançamento encontrado.
+                  </div>
+                ) : (
+                  pagamentoLancamentosFiltrados.map((it) => {
+                    const isSelected = !!pagamentoSelectedIds[it.id];
+                    return (
+                      <Card key={it.id} className="overflow-hidden border border-slate-100 bg-white">
+                        <div className="flex items-start gap-3 p-3">
+                          <div className="pt-0.5">
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={(v) => {
+                                const next = { ...pagamentoSelectedIds };
+                                next[it.id] = Boolean(v);
+                                if (!next[it.id]) delete next[it.id];
+                                setPagamentoSelectedIds(next);
+                              }}
+                            />
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="truncate font-mono text-sm">{it.codigo}</div>
+                                <div className="text-[10px] text-muted-foreground">
+                                  {dateFormatter.format(new Date(it.data_colheita))}
+                                </div>
+                              </div>
+                              <div className="shrink-0">
+                                {it.pago_em ? (
+                                  <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-medium text-emerald-800">
+                                    <span className="h-3 w-1 rounded-full bg-emerald-500" />
+                                    Pago
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-medium text-amber-900">
+                                    <span className="h-3 w-1 rounded-full bg-amber-500" />
+                                    Pendente
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-700">
+                                {(it.peso_kg ?? 0).toFixed(2)} kg
+                              </span>
+                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-700">
+                                Bal: {(it.quantidade_balaios ?? 0).toFixed(2)}
+                              </span>
+                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-700">
+                                {currencyFormatter.format(it.valor_total ?? 0)}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="shrink-0">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => buildAndPrintComprovanteMovimentacao(it)}
+                              disabled={!it.pago_em}
+                              title={it.pago_em ? "Comprovante" : "Pendente"}
+                              className={it.pago_em ? "text-amber-700 hover:text-amber-800 hover:bg-amber-50" : "text-slate-300"}
+                            >
+                              <FileText className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </Card>
+                    );
+                  })
+                )}
+              </div>
+
+              <div className="hidden sm:block">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-slate-50/80 sticky top-0 z-10">
@@ -1711,6 +1941,7 @@ export default function Panhadores() {
                 </TableBody>
               </Table>
               </div>
+              </div>
             </div>
           </DialogContent>
         </Dialog>
@@ -1722,28 +1953,70 @@ export default function Panhadores() {
             if (!open) {
               setBagTarget(null);
               setBagTargetValue("");
+              setEditNome("");
+              setEditApelido("");
+              setEditCpf("");
+              setEditTelefone("");
             }
           }}
         >
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Trocar bag</DialogTitle>
+              <DialogTitle>Editar panhador</DialogTitle>
               <DialogDescription>
-                {bagTarget ? `Atualize a bag vinculada do panhador ${bagTarget.nome}.` : ""}
+                {bagTarget ? `Atualize os dados do panhador ${bagTarget.nome}.` : ""}
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-2">
-              <Label>Bag vinculada</Label>
-              <Input
-                value={bagTargetValue}
-                onChange={(e) => setBagTargetValue(e.target.value)}
-                placeholder="Ex: 20"
-                maxLength={60}
-              />
-              <p className="text-xs text-muted-foreground">
-                Deixe em branco para remover a bag.
-              </p>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Nome</Label>
+                <Input value={editNome} onChange={(e) => setEditNome(e.target.value)} placeholder="Nome completo" />
+              </div>
+              <div className="space-y-2">
+                <Label>Apelido</Label>
+                <Input value={editApelido} onChange={(e) => setEditApelido(e.target.value)} placeholder="Opcional" />
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>CPF</Label>
+                  <Input
+                    value={editCpf}
+                    onChange={(e) => setEditCpf(e.target.value)}
+                    placeholder="Somente números"
+                    inputMode="numeric"
+                    maxLength={20}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Telefone</Label>
+                  <Input
+                    value={editTelefone}
+                    onChange={(e) => setEditTelefone(e.target.value)}
+                    placeholder="Somente números"
+                    inputMode="numeric"
+                    maxLength={20}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Bag vinculada</Label>
+                <Input
+                  value={bagTargetValue}
+                  onChange={(e) => setBagTargetValue(e.target.value)}
+                  placeholder="Ex: 20"
+                  maxLength={60}
+                  disabled={!bagFieldsSupported}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {!bagFieldsSupported
+                    ? "Bag indisponível: aplique a migration no Supabase para habilitar."
+                    : "Deixe em branco para remover a bag."}
+                </p>
+              </div>
             </div>
+
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setBagDialogOpen(false)} disabled={bagSaving}>
                 Cancelar

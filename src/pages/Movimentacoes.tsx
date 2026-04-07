@@ -37,8 +37,10 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
+import { useOfflineSync } from "@/hooks/useOfflineSync";
 import { cn } from "@/lib/utils";
 import { cacheKey, getPendingColheitas, readJson, writeJson } from "@/lib/offline";
+import { isUuid, toUuidOrNull } from "@/lib/uuid";
 
 interface Lancamento {
   id: string;
@@ -97,6 +99,7 @@ const dateFormatter = new Intl.DateTimeFormat("pt-BR", {
 
 export default function Movimentacoes() {
   const { user, selectedCompany } = useAuth();
+  const { syncPendingData, syncing } = useOfflineSync();
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
@@ -129,6 +132,9 @@ export default function Movimentacoes() {
 
   const [syncLogOpen, setSyncLogOpen] = useState(false);
   const [syncLogTarget, setSyncLogTarget] = useState<Lancamento | null>(null);
+
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsTarget, setDetailsTarget] = useState<Lancamento | null>(null);
 
   const [filtersOpen, setFiltersOpen] = useState(false);
 
@@ -292,6 +298,11 @@ export default function Movimentacoes() {
 
   const loadLavouras = async (propId: string) => {
     if (!user || !selectedCompany) {
+      setLavouras([]);
+      return;
+    }
+
+    if (!isUuid(propId)) {
       setLavouras([]);
       return;
     }
@@ -769,6 +780,16 @@ export default function Movimentacoes() {
       return;
     }
 
+    const invalidIds = selectedLancamentos.filter((it) => !isUuid(it.id));
+    if (invalidIds.length > 0) {
+      toast({
+        title: "Item inválido",
+        description: "Existem movimentações com ID inválido (offline/pendente). Sincronize antes de pagar.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (selectedTotals.pendentesSelected > 0) {
       toast({
         title: "Há pendentes",
@@ -896,12 +917,21 @@ export default function Movimentacoes() {
     e.preventDefault();
     if (!selectedCompany || !user || !editTarget) return;
 
+    if (!isUuid(editTarget.id)) {
+      toast({
+        title: "Movimentação offline",
+        description: "Sincronize a movimentação antes de editar.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const pesoNumber = Number(editForm.pesoKg);
     if (!pesoNumber || pesoNumber <= 0) {
       toast({ title: "Peso inválido", description: "Informe um peso maior que zero.", variant: "destructive" });
       return;
     }
-    if (!editForm.panhadorId) {
+    if (!editForm.panhadorId || !isUuid(editForm.panhadorId)) {
       toast({ title: "Selecione o panhador", variant: "destructive" });
       return;
     }
@@ -915,8 +945,8 @@ export default function Movimentacoes() {
 
     const propriedadePayload = propriedadesSupported
       ? {
-          propriedade_id: editForm.propriedadeId === PADRAO_OPTION ? null : editForm.propriedadeId,
-          lavoura_id: editForm.lavouraId === PADRAO_OPTION ? null : editForm.lavouraId,
+          propriedade_id: editForm.propriedadeId === PADRAO_OPTION ? null : toUuidOrNull(editForm.propriedadeId),
+          lavoura_id: editForm.lavouraId === PADRAO_OPTION ? null : toUuidOrNull(editForm.lavouraId),
         }
       : {};
 
@@ -975,6 +1005,16 @@ export default function Movimentacoes() {
 
   const handleDeleteLancamento = async () => {
     if (!deleteTarget || !selectedCompany) return;
+
+    if (!isUuid(deleteTarget.id)) {
+      toast({
+        title: "Movimentação offline",
+        description: "Sincronize a movimentação antes de excluir.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setDeleteLoading(true);
     try {
       const { error } = await supabase
@@ -1137,7 +1177,80 @@ export default function Movimentacoes() {
                 </div>
               </div>
             )}
-            <div className="overflow-x-auto rounded-2xl border border-slate-100 text-xs sm:text-sm">
+
+            <div className="sm:hidden space-y-2">
+              {loading ? (
+                <div className="rounded-2xl border border-slate-100 bg-white p-3 text-center text-sm text-muted-foreground">
+                  Carregando movimentações...
+                </div>
+              ) : filteredLancamentos.length === 0 ? (
+                <div className="rounded-2xl border border-slate-100 bg-white p-3 text-center text-sm text-muted-foreground">
+                  {lancamentos.length === 0
+                    ? "Nenhum lançamento encontrado para esta empresa"
+                    : "Nenhum resultado para o filtro aplicado"}
+                </div>
+              ) : (
+                filteredLancamentos.map((item) => {
+                  const balaios = getBalaiosForLancamento(item);
+                  const statusDot = item.pago_em != null ? "bg-emerald-500" : item.valor_total != null ? "bg-sky-500" : "bg-amber-500";
+                  return (
+                    <Card key={item.id} className="overflow-hidden border border-slate-100 bg-white">
+                      <button
+                        type="button"
+                        className="w-full p-3 text-left"
+                        onClick={() => {
+                          setDetailsTarget(item);
+                          setDetailsOpen(true);
+                        }}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 overflow-hidden">
+                            <div className="truncate text-sm font-semibold text-[hsl(24_25%_18%)]">
+                              Ticket {item.codigo}
+                            </div>
+                            <div className="truncate text-xs text-muted-foreground">{item.panhador}</div>
+                          </div>
+                          <div className="shrink-0 text-[10px] text-muted-foreground">
+                            {dateFormatter.format(new Date(item.data_colheita))}
+                          </div>
+                        </div>
+
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-700">
+                            Bag #{item.numero_bag ?? "-"}
+                          </span>
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-700">
+                            {item.peso_kg.toFixed(2)} kg
+                          </span>
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-700">
+                            Bal: {balaios != null ? balaios.toFixed(2) : "-"}
+                          </span>
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-700">
+                            {item.valor_total != null ? currencyFormatter.format(item.valor_total) : "Pendente"}
+                          </span>
+                        </div>
+
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className={cn("h-2.5 w-2.5 rounded-full", statusDot)} />
+                            {item.codigo.startsWith("OFF-") ? (
+                              <span className="text-[10px] font-medium text-amber-700">Pendente sync</span>
+                            ) : item.pendente_aparelho ? (
+                              <span className="text-[10px] font-medium text-amber-700">Aparelho inativo</span>
+                            ) : null}
+                          </div>
+                          {item.codigo.startsWith("OFF-") && item.offline_last_error ? (
+                            <span className="text-[10px] font-medium text-destructive">Erro</span>
+                          ) : null}
+                        </div>
+                      </button>
+                    </Card>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="hidden overflow-x-auto rounded-2xl border border-slate-100 text-xs sm:block sm:text-sm">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-slate-50/80">
@@ -1273,6 +1386,196 @@ export default function Movimentacoes() {
           </CardContent>
         </Card>
       </main>
+
+      <Dialog
+        open={detailsOpen}
+        onOpenChange={(open) => {
+          setDetailsOpen(open);
+          if (!open) setDetailsTarget(null);
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Detalhes da movimentação</DialogTitle>
+            <DialogDescription>Informações completas do registro</DialogDescription>
+          </DialogHeader>
+
+          {detailsTarget ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label>Ticket</Label>
+                  <div className="text-sm font-mono">{detailsTarget.codigo}</div>
+                </div>
+                <div className="space-y-1">
+                  <Label>Data</Label>
+                  <div className="text-sm">{dateFormatter.format(new Date(detailsTarget.data_colheita))}</div>
+                </div>
+                <div className="space-y-1">
+                  <Label>Panhador</Label>
+                  <div className="text-sm">{detailsTarget.panhador}</div>
+                </div>
+                <div className="space-y-1">
+                  <Label>Bag</Label>
+                  <div className="text-sm font-mono">{detailsTarget.numero_bag ?? "-"}</div>
+                </div>
+                <div className="space-y-1">
+                  <Label>Peso</Label>
+                  <div className="text-sm">{detailsTarget.peso_kg.toFixed(2)} kg</div>
+                </div>
+                <div className="space-y-1">
+                  <Label>Balaios</Label>
+                  <div className="text-sm">
+                    {(() => {
+                      const balaios = getBalaiosForLancamento(detailsTarget);
+                      return balaios != null ? balaios.toFixed(2) : "-";
+                    })()}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label>Valor</Label>
+                  <div className="text-sm">
+                    {detailsTarget.valor_total != null ? currencyFormatter.format(detailsTarget.valor_total) : "Pendente"}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label>Status</Label>
+                  <div className="text-sm">
+                    {detailsTarget.pago_em != null ? "Pago" : detailsTarget.valor_total != null ? "Valor fechado" : "Pendente"}
+                  </div>
+                </div>
+              </div>
+
+              {propriedadesSupported ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label>Propriedade</Label>
+                    <div className="text-sm">{detailsTarget.propriedade || "padrao"}</div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Lavoura</Label>
+                    <div className="text-sm">{detailsTarget.lavoura || "padrao"}</div>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label>Encarregado</Label>
+                  <div className="text-sm">{detailsTarget.encarregado}</div>
+                </div>
+                <div className="space-y-1">
+                  <Label>Aparelho</Label>
+                  <div className="text-sm">{detailsTarget.aparelho}</div>
+                </div>
+              </div>
+
+              {detailsTarget.codigo.startsWith("OFF-") && detailsTarget.offline_last_error ? (
+                <div className="space-y-2">
+                  <Label>Erro de sincronização</Label>
+                  <div className="max-h-48 overflow-auto rounded-md border bg-slate-50 p-3">
+                    {(() => {
+                      const raw = detailsTarget.offline_last_error ?? "";
+                      const parts = raw
+                        .split("|")
+                        .map((p) => p.trim())
+                        .filter(Boolean);
+                      const codePart = parts.find((p) => p.toLowerCase().startsWith("code=")) ?? "";
+                      const code = codePart ? codePart.slice(5) : "";
+                      const message = parts.find((p) => !p.toLowerCase().startsWith("code=")) ?? raw;
+                      const details = parts
+                        .filter((p) => p !== codePart && p !== message)
+                        .join(" | ");
+
+                      return (
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <div>
+                              <div className="text-[11px] font-medium text-muted-foreground">Código do erro</div>
+                              <div className="font-mono text-xs">{code || "-"}</div>
+                            </div>
+                            <div>
+                              <div className="text-[11px] font-medium text-muted-foreground">Movimentação</div>
+                              <div className="font-mono text-xs">{detailsTarget.codigo}</div>
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[11px] font-medium text-muted-foreground">Mensagem</div>
+                            <pre className="whitespace-pre-wrap text-xs leading-relaxed">{message || "-"}</pre>
+                          </div>
+                          {details ? (
+                            <div>
+                              <div className="text-[11px] font-medium text-muted-foreground">Detalhes</div>
+                              <pre className="whitespace-pre-wrap text-xs leading-relaxed">{details}</pre>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="flex justify-end gap-2">
+                {detailsTarget.codigo.startsWith("OFF-") ? (
+                  <Button
+                    onClick={async () => {
+                      if (!navigator.onLine) {
+                        toast({
+                          title: "Sem internet",
+                          description: "Conecte-se para tentar sincronizar.",
+                          variant: "destructive",
+                        });
+                        return;
+                      }
+
+                      try {
+                        await syncPendingData();
+                      } finally {
+                        const pendingNow = getPendingColheitas();
+                        const still = pendingNow.find((p) => p.id === detailsTarget.id) ?? null;
+
+                        if (!still) {
+                          toast({ title: "Sincronizado", description: "Item enviado com sucesso." });
+                          setDetailsOpen(false);
+                          setDetailsTarget(null);
+                          void loadLancamentos();
+                          return;
+                        }
+
+                        setDetailsTarget((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                offline_sync_attempts: still.sync_attempts ?? 0,
+                                offline_last_error: still.last_error ?? null,
+                                offline_last_error_at: still.last_error_at ?? null,
+                              }
+                            : prev,
+                        );
+
+                        if (still.last_error) {
+                          toast({
+                            title: "Falha ao sincronizar",
+                            description: "Veja o motivo no log dentro do modal.",
+                            variant: "destructive",
+                          });
+                        }
+                      }
+                    }}
+                    disabled={syncing}
+                  >
+                    {syncing ? "Sincronizando..." : "Sincronizar"}
+                  </Button>
+                ) : null}
+                <Button variant="outline" onClick={() => setDetailsOpen(false)}>
+                  Fechar
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={filtersOpen}

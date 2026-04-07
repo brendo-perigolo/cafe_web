@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { useOfflineSync } from "@/hooks/useOfflineSync";
 import { cacheKey, readJson, writeJson } from "@/lib/offline";
 import { getDeviceLancamentoSettings } from "@/lib/deviceSettings";
+import { isUuid, toUuidOrNull } from "@/lib/uuid";
 import { z } from "zod";
 import {
   AlertDialog,
@@ -292,6 +293,12 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
       return;
     }
 
+    if (!isUuid(propId)) {
+      setLavouras([]);
+      setLavouraId(PADRAO_OPTION);
+      return;
+    }
+
     const lavourasCacheKey = cacheKey("lavouras_list", selectedCompany.id);
     const cachedLavouras = readJson<{ supported?: boolean; lavouras: LavouraOption[] } | null>(lavourasCacheKey, null);
 
@@ -301,12 +308,6 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
       setLavouras(filtered);
       const padrao = filtered.find((l) => l.nome.trim().toLowerCase() === "padrao")?.id;
       setLavouraId(padrao ?? (filtered[0]?.id ?? PADRAO_OPTION));
-      return;
-    }
-
-    if (!propId || propId === PADRAO_OPTION || !propId.trim()) {
-      setLavouras([]);
-      setLavouraId(PADRAO_OPTION);
       return;
     }
 
@@ -843,8 +844,8 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
         aparelho_token: aparelhoToken,
         ...(propriedadesSupported
           ? {
-              propriedade_id: propriedadeId === PADRAO_OPTION ? null : propriedadeId,
-              lavoura_id: lavouraId === PADRAO_OPTION ? null : lavouraId,
+              propriedade_id: propriedadeId === PADRAO_OPTION ? null : toUuidOrNull(propriedadeId),
+              lavoura_id: lavouraId === PADRAO_OPTION ? null : toUuidOrNull(lavouraId),
             }
           : {}),
       };
@@ -978,8 +979,8 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
             mostrar_balaio_no_ticket: usarBalaioNoTicket,
             ...(propriedadesSupported
               ? {
-                  propriedade_id: propriedadeId === PADRAO_OPTION ? null : propriedadeId,
-                  lavoura_id: lavouraId === PADRAO_OPTION ? null : lavouraId,
+                  propriedade_id: propriedadeId === PADRAO_OPTION ? null : toUuidOrNull(propriedadeId),
+                  lavoura_id: lavouraId === PADRAO_OPTION ? null : toUuidOrNull(lavouraId),
                 }
               : {}),
           });

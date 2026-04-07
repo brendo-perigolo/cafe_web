@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
 import { getAparelhoAtivo } from "@/lib/aparelhos";
 import { getDeviceToken, safeRandomUUID } from "@/lib/device";
+import { toUuidOrNull } from "@/lib/uuid";
 import {
   getPendingColheitas,
   getPendingPanhadorOps,
@@ -243,7 +244,7 @@ export const useOfflineSync = () => {
           peso_kg: colheita.peso_kg,
           preco_por_kg: colheita.preco_por_kg,
           valor_total: colheita.valor_total,
-          panhador_id: colheita.panhador_id,
+          panhador_id: toUuidOrNull((colheita as unknown as { panhador_id?: unknown }).panhador_id),
           user_id: user.id,
           data_colheita: colheita.data_colheita,
           empresa_id: colheita.empresa_id,
@@ -259,9 +260,11 @@ export const useOfflineSync = () => {
           aparelho_token: aparelhoToken,
           pendente_aparelho: pendenteAparelho,
           ...(Object.prototype.hasOwnProperty.call(colheita, "propriedade_id")
-            ? { propriedade_id: colheita.propriedade_id ?? null }
+            ? { propriedade_id: toUuidOrNull((colheita as unknown as { propriedade_id?: unknown }).propriedade_id) }
             : {}),
-          ...(Object.prototype.hasOwnProperty.call(colheita, "lavoura_id") ? { lavoura_id: colheita.lavoura_id ?? null } : {}),
+          ...(Object.prototype.hasOwnProperty.call(colheita, "lavoura_id")
+            ? { lavoura_id: toUuidOrNull((colheita as unknown as { lavoura_id?: unknown }).lavoura_id) }
+            : {}),
         };
 
         try {

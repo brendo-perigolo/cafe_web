@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +29,7 @@ export default function Aparelhos() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [aparelhos, setAparelhos] = useState<Aparelho[]>([]);
+  const [cadastrarOpen, setCadastrarOpen] = useState(false);
 
   const loadAparelhos = async () => {
     if (!user || !selectedCompany) {
@@ -113,6 +115,7 @@ export default function Aparelhos() {
 
       toast({ title: "Aparelho cadastrado", description: "Token registrado com sucesso." });
       setNome("");
+      setCadastrarOpen(false);
       await loadAparelhos();
     } catch (error) {
       console.error("Erro ao cadastrar aparelho:", error);
@@ -153,38 +156,58 @@ export default function Aparelhos() {
     <div className="min-h-screen bg-background">
       <Navbar />
       <main className="container mx-auto px-4 py-6">
-        <div className="mb-6 flex items-center gap-3">
-          <div className="rounded-full bg-primary/10 p-3 text-primary">
-            <Smartphone className="h-5 w-5" />
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="rounded-full bg-primary/10 p-3 text-primary">
+              <Smartphone className="h-5 w-5" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-semibold">Aparelhos</h1>
+              <p className="text-sm text-muted-foreground">Cadastre e ative/desative equipamentos</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-semibold">Aparelhos</h1>
-            <p className="text-sm text-muted-foreground">Cadastre e ative/desative equipamentos</p>
-          </div>
+
+          <Dialog
+            open={cadastrarOpen}
+            onOpenChange={(open) => {
+              setCadastrarOpen(open);
+              if (open) setNome("");
+            }}
+          >
+            <Button onClick={() => setCadastrarOpen(true)} disabled={!selectedCompany}>
+              Cadastrar
+            </Button>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Cadastrar aparelho</DialogTitle>
+                <DialogDescription>Use o token deste dispositivo</DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Token</Label>
+                  <Input value={deviceToken} readOnly />
+                </div>
+                <div className="space-y-2">
+                  <Label>Nome do equipamento</Label>
+                  <Input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex: Coletor 01" />
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setCadastrarOpen(false)} disabled={saving}>
+                  Cancelar
+                </Button>
+                <Button onClick={handleCreate} disabled={saving || !selectedCompany}>
+                  {saving ? "Salvando..." : "Cadastrar"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-3">
-          <Card className="lg:col-span-1">
-            <CardHeader>
-              <CardTitle>Cadastrar aparelho</CardTitle>
-              <CardDescription>Use o token deste dispositivo</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label>Token</Label>
-                <Input value={deviceToken} readOnly />
-              </div>
-              <div className="space-y-2">
-                <Label>Nome do equipamento</Label>
-                <Input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex: Coletor 01" />
-              </div>
-              <Button className="w-full" onClick={handleCreate} disabled={saving || !selectedCompany}>
-                {saving ? "Salvando..." : "Cadastrar"}
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card className="lg:col-span-2">
+        <div className="grid gap-6">
+          <Card>
             <CardHeader>
               <CardTitle>Lista de aparelhos</CardTitle>
               <CardDescription>Mostrando todos os aparelhos desta empresa</CardDescription>
