@@ -80,6 +80,12 @@ const dateTimeFormatter = new Intl.DateTimeFormat("pt-BR", {
   second: "2-digit",
 });
 
+const timeFormatter = new Intl.DateTimeFormat("pt-BR", {
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+});
+
 const donutColors = ["#1d3557", "#2d6a4f", "#c97c5d"];
 
 export default function Dashboard() {
@@ -481,27 +487,29 @@ export default function Dashboard() {
               <CardHeader className="flex flex-col gap-4 pb-0">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                      <span className="inline-flex w-fit items-center rounded-full bg-[hsl(204_70%_94%)] px-4 py-1 text-xs font-semibold text-[hsl(204_65%_32%)]">
+                    <div className="grid grid-cols-2 items-center gap-2 sm:flex sm:items-center sm:gap-2">
+                      <span className="hidden w-fit items-center justify-center rounded-full bg-[hsl(204_70%_94%)] px-4 py-1 text-xs font-semibold text-[hsl(204_65%_32%)] sm:inline-flex">
                         Painel rápido
                       </span>
-                    </div>
 
-                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                      <div className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
-                        <span className={cn("h-2.5 w-2.5 rounded-full", isOnline ? "bg-emerald-500" : "bg-rose-500")} />
+                      <div className="flex items-center justify-center gap-2 rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600 sm:px-3 sm:py-1 sm:text-xs">
+                        <span className={cn("h-2 w-2 rounded-full", isOnline ? "bg-emerald-500" : "bg-rose-500")} />
                         {isOnline ? "Online" : "Offline"}
                       </div>
-                      <div className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+
+                      <div className="flex items-center justify-center gap-2 rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600 sm:px-3 sm:py-1 sm:text-xs">
                         <span
                           className={cn(
-                            "h-2.5 w-2.5 rounded-full",
+                            "h-2 w-2 rounded-full",
                             cacheReady === null ? "bg-slate-400" : cacheReady ? "bg-emerald-500" : "bg-amber-500",
                           )}
                         />
                         {cacheReady === null ? "Checando cache" : cacheReady ? "Cache OK" : "Cache pendente"}
                       </div>
-                      <span className="font-mono">v{__APP_VERSION__}</span>
+
+                      <span className="col-span-2 mt-0.5 flex items-center justify-end font-mono text-[9px] text-muted-foreground sm:col-span-1 sm:mt-0 sm:justify-center sm:text-xs">
+                        v{__APP_VERSION__}
+                      </span>
                     </div>
                   </div>
 
@@ -509,7 +517,7 @@ export default function Dashboard() {
                     onClick={handleSync}
                     disabled={!isOnline || syncing}
                     size="icon"
-                    className="h-9 w-9 rounded-full bg-[hsl(196_65%_45%)] text-white hover:bg-[hsl(196_65%_40%)]"
+                    className="hidden h-9 w-9 rounded-full bg-[hsl(196_65%_45%)] text-white hover:bg-[hsl(196_65%_40%)] sm:inline-flex"
                     aria-label={totalPendentes > 0 ? `Sincronizar (${totalPendentes} pendentes)` : "Sincronizar"}
                     title={totalPendentes > 0 ? `Sincronizar (${totalPendentes} pendentes)` : "Sincronizar"}
                   >
@@ -555,18 +563,14 @@ export default function Dashboard() {
                     <div key={colheita.id} className="rounded-xl border border-slate-200/60 bg-slate-50/60 px-3 py-2">
                       <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
                         <span className="font-mono">#{colheita.codigo}</span>
-                        <span className="font-mono tabular-nums">{dateTimeFormatter.format(new Date(colheita.data_colheita))}</span>
+                        <span className="font-mono tabular-nums text-foreground">
+                          {timeFormatter.format(new Date(colheita.data_colheita))}
+                        </span>
                       </div>
 
                       <div className="mt-1.5 grid grid-cols-[1fr_auto] gap-3">
                         <div className="min-w-0">
                           <p className="truncate text-sm font-semibold text-[hsl(24_25%_25%)]">{colheita.panhador.nome}</p>
-                          <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                            <Calendar className="h-3 w-3" />
-                            <span className="tabular-nums">
-                              {new Date(colheita.data_colheita).toLocaleDateString("pt-BR")}
-                            </span>
-                          </p>
                         </div>
 
                         <div className="text-right">
@@ -583,6 +587,15 @@ export default function Dashboard() {
                             {colheita.valor_total != null ? currencyFormatter.format(colheita.valor_total) : "Valor pendente"}
                           </p>
                         </div>
+                      </div>
+
+                      <div className="mt-2 flex items-center justify-between text-[11px]">
+                        <span className="flex items-center gap-1 text-[hsl(24_35%_30%)]">
+                          <Calendar className="h-3 w-3" />
+                          <span className="tabular-nums">
+                            {new Date(colheita.data_colheita).toLocaleDateString("pt-BR")}
+                          </span>
+                        </span>
                       </div>
                     </div>
                   ))}

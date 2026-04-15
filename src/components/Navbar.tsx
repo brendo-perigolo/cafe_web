@@ -173,14 +173,24 @@ export const Navbar = () => {
 
           <div className="flex items-center gap-2">
             {isConfig ? (
-              <Button variant="default" onClick={pageAction.onClick} aria-label={pageAction.ariaLabel} title={pageAction.title}>
-                <Check className="mr-2 h-4 w-4" />
-                {pageAction.label}
+              <Button
+                variant="default"
+                size="icon"
+                onClick={pageAction.onClick}
+                aria-label={pageAction.ariaLabel}
+                title={pageAction.title}
+              >
+                <Check className="h-4 w-4" />
               </Button>
             ) : (
-              <Button variant="secondary" onClick={pageAction.onClick} aria-label={pageAction.ariaLabel} title={pageAction.title}>
-                <Plus className="mr-2 h-4 w-4" />
-                {pageAction.label}
+              <Button
+                variant="secondary"
+                size="icon"
+                onClick={pageAction.onClick}
+                aria-label={pageAction.ariaLabel}
+                title={pageAction.title}
+              >
+                <Plus className="h-4 w-4" />
               </Button>
             )}
             <Button variant="ghost" size="icon" onClick={signOut} aria-label="Sair">
