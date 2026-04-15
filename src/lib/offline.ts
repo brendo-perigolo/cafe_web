@@ -1,6 +1,8 @@
 export const PENDING_COLHEITAS_KEY = "safra:pending_colheitas";
 export const LEGACY_PENDING_COLHEITAS_KEY = "pendingColheitas";
 
+export const PENDING_COLHEITAS_UPDATES_KEY = "safra:pending_colheitas_updates";
+
 export const PENDING_PANHADORES_OPS_KEY = "safra:pending_panhadores_ops";
 
 const CACHE_PREFIX = "safra:cache:";
@@ -57,6 +59,16 @@ export interface PendingColheitaLocal {
   mostrar_balaio_no_ticket?: boolean;
 }
 
+export interface PendingColheitaUpdateLocal {
+  id: string;
+  empresa_id: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+  sync_attempts?: number;
+  last_error?: string | null;
+  last_error_at?: string | null;
+}
+
 export type PendingPanhadorAction = "insert" | "update" | "deactivate";
 
 export interface PendingPanhadorOp {
@@ -78,6 +90,14 @@ export function setPendingColheitas(next: PendingColheitaLocal[]) {
   writeJson(PENDING_COLHEITAS_KEY, next);
   // cleanup legacy if present
   removeKey(LEGACY_PENDING_COLHEITAS_KEY);
+}
+
+export function getPendingColheitasUpdates(): PendingColheitaUpdateLocal[] {
+  return readJson<PendingColheitaUpdateLocal[]>(PENDING_COLHEITAS_UPDATES_KEY, []);
+}
+
+export function setPendingColheitasUpdates(next: PendingColheitaUpdateLocal[]) {
+  writeJson(PENDING_COLHEITAS_UPDATES_KEY, next);
 }
 
 export function getPendingPanhadorOps(): PendingPanhadorOp[] {

@@ -40,6 +40,7 @@ import { toast } from "@/hooks/use-toast";
 import { useOfflineSync } from "@/hooks/useOfflineSync";
 import { cn } from "@/lib/utils";
 import { cacheKey, getPendingColheitas, readJson, writeJson } from "@/lib/offline";
+import { getDeviceToken } from "@/lib/device";
 import { isUuid, toUuidOrNull } from "@/lib/uuid";
 
 interface Lancamento {
@@ -99,7 +100,7 @@ const dateFormatter = new Intl.DateTimeFormat("pt-BR", {
 
 export default function Movimentacoes() {
   const { user, selectedCompany } = useAuth();
-  const { syncPendingData, syncing } = useOfflineSync();
+  const { syncPendingData, syncing, savePendingColheitaUpdate } = useOfflineSync();
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
@@ -364,6 +365,42 @@ export default function Movimentacoes() {
     setLoading(true);
 
     const movCacheKey = cacheKey("movimentacoes_list", selectedCompany.id);
+    const deviceToken = getDeviceToken();
+    const deviceMovCacheKey = cacheKey(`movimentacoes_device_${deviceToken}`, selectedCompany.id);
+
+    if (!navigator.onLine) {
+      const cached = readJson<{ cachedAt?: string; lancamentos: Lancamento[] } | null>(movCacheKey, null);
+      const cachedDevice = readJson<{ cachedAt?: string; lancamentos: Lancamento[] } | null>(deviceMovCacheKey, null);
+
+      const combined = (() => {
+        const base = cached?.lancamentos ?? [];
+        const extra = cachedDevice?.lancamentos ?? [];
+        if (base.length === 0 && extra.length === 0) return [];
+
+        const byId = new Map<string, Lancamento>();
+        [...base, ...extra].forEach((it) => {
+          if (!byId.has(it.id)) byId.set(it.id, it);
+        });
+
+        return Array.from(byId.values()).sort(
+          (a, b) => new Date(b.data_colheita).getTime() - new Date(a.data_colheita).getTime(),
+        );
+      })();
+
+      if (combined.length) {
+        setLancamentos(mergePendingLocal(combined));
+        setLoading(false);
+        return;
+      }
+
+      toast({
+        title: "Falha de conexão",
+        description: "Sem internet e sem cache disponível.",
+        variant: "destructive",
+      });
+      setLoading(false);
+      return;
+    }
 
     const baseSelect =
       "id, codigo, peso_kg, preco_por_kg, valor_total, data_colheita, numero_bag, panhador_id, quantidade_balaios, pago_em, aparelho_token, pendente_aparelho, profiles!colheitas_user_id_fkey(full_name), panhadores(nome)";
@@ -376,8 +413,17 @@ export default function Movimentacoes() {
       .order("data_colheita", { ascending: false })
       .limit(200);
 
-    const [{ data, error }, aparelhosResult] = await Promise.all([
+    const colheitasDeviceQuery = supabase
+      .from("colheitas")
+      .select(extendedSelect)
+      .eq("empresa_id", selectedCompany.id)
+      .eq("aparelho_token", deviceToken)
+      .order("data_colheita", { ascending: false })
+      .limit(500);
+
+    const [{ data, error }, deviceResult, aparelhosResult] = await Promise.all([
       colheitasQuery,
+      colheitasDeviceQuery,
       supabase.from("aparelhos").select("token, nome").eq("empresa_id", selectedCompany.id),
     ]);
 
@@ -405,6 +451,27 @@ export default function Movimentacoes() {
     const effectiveData = (colheitasMissingColumns ? fallbackColheitas?.data : data) ?? [];
     const effectiveError = colheitasMissingColumns ? fallbackColheitas?.error : error;
 
+    const deviceMissingColumns =
+      !!deviceResult.error &&
+      (((deviceResult.error as { code?: string }).code === "42703" || (deviceResult.error as { code?: string }).code === "42P01") ||
+        ((deviceResult.error as { message?: string }).message?.toLowerCase().includes("propriedade_id") ?? false) ||
+        ((deviceResult.error as { message?: string }).message?.toLowerCase().includes("lavoura_id") ?? false) ||
+        ((deviceResult.error as { message?: string }).message?.toLowerCase().includes("propriedades") ?? false) ||
+        ((deviceResult.error as { message?: string }).message?.toLowerCase().includes("lavouras") ?? false));
+
+    const deviceFallback = deviceMissingColumns
+      ? await supabase
+          .from("colheitas")
+          .select(baseSelect)
+          .eq("empresa_id", selectedCompany.id)
+          .eq("aparelho_token", deviceToken)
+          .order("data_colheita", { ascending: false })
+          .limit(500)
+      : null;
+
+    const deviceData = (deviceMissingColumns ? deviceFallback?.data : deviceResult.data) ?? [];
+    const deviceError = deviceMissingColumns ? deviceFallback?.error : deviceResult.error;
+
     const aparelhosFallbackNeeded = aparelhosResult.error && (aparelhosResult.error as { code?: string }).code === "42703";
     const aparelhosFallback = aparelhosFallbackNeeded ? await supabase.from("aparelhos").select("token, nome") : null;
     const aparelhosData = (aparelhosFallbackNeeded ? aparelhosFallback?.data : aparelhosResult.data) ?? [];
@@ -419,9 +486,17 @@ export default function Movimentacoes() {
       console.error("Erro ao carregar movimentações:", effectiveError);
 
       const cached = readJson<{ cachedAt?: string; lancamentos: Lancamento[] } | null>(movCacheKey, null);
+      const cachedDevice = readJson<{ cachedAt?: string; lancamentos: Lancamento[] } | null>(deviceMovCacheKey, null);
       if (cached?.lancamentos?.length) {
         setLancamentos(mergePendingLocal(cached.lancamentos));
         toast({ title: "Modo offline", description: "Mostrando movimentações salvas no dispositivo." });
+        setLoading(false);
+        return;
+      }
+
+      if (cachedDevice?.lancamentos?.length) {
+        setLancamentos(mergePendingLocal(cachedDevice.lancamentos));
+        toast({ title: "Modo offline", description: "Mostrando movimentações deste aparelho (cache)." });
         setLoading(false);
         return;
       }
@@ -468,6 +543,45 @@ export default function Movimentacoes() {
       cachedAt: new Date().toISOString(),
       lancamentos: normalized,
     });
+
+    if (!deviceError) {
+      const normalizedDevice: Lancamento[] = (deviceData || []).map((item) => ({
+        id: item.id,
+        codigo: item.codigo ?? "-",
+        peso_kg: Number(item.peso_kg) || 0,
+        quantidade_balaios:
+          (item as { quantidade_balaios?: number | null }).quantidade_balaios != null
+            ? Number((item as { quantidade_balaios?: number | null }).quantidade_balaios)
+            : null,
+        preco_por_kg: item.preco_por_kg != null ? Number(item.preco_por_kg) : null,
+        valor_total: item.valor_total != null ? Number(item.valor_total) : null,
+        data_colheita: item.data_colheita,
+        numero_bag: item.numero_bag,
+        panhador: (item.panhadores as { nome?: string } | null)?.nome ?? "-",
+        panhador_id: item.panhador_id,
+        propriedade_id: (item as { propriedade_id?: string | null }).propriedade_id ?? null,
+        lavoura_id: (item as { lavoura_id?: string | null }).lavoura_id ?? null,
+        propriedade:
+          ((item as { propriedades?: { nome?: string | null } | null }).propriedades as { nome?: string | null } | null)?.nome ??
+          "padrao",
+        lavoura:
+          ((item as { lavouras?: { nome?: string | null } | null }).lavouras as { nome?: string | null } | null)?.nome ?? "padrao",
+        pago_em: (item as { pago_em?: string | null }).pago_em ?? null,
+        encarregado: (item.profiles as { full_name?: string } | null)?.full_name ?? "-",
+        aparelho_token: (item as { aparelho_token?: string | null }).aparelho_token ?? null,
+        aparelho:
+          ((item as { aparelho_token?: string | null }).aparelho_token ?? null)
+            ? aparelhoByToken.get(((item as { aparelho_token?: string | null }).aparelho_token ?? "").trim())?.nome ??
+              (((item as { aparelho_token?: string | null }).aparelho_token ?? "").trim().slice(0, 8) || "-")
+            : "-",
+        pendente_aparelho: (item as { pendente_aparelho?: boolean }).pendente_aparelho ?? false,
+      }));
+
+      writeJson(deviceMovCacheKey, {
+        cachedAt: new Date().toISOString(),
+        lancamentos: normalizedDevice,
+      });
+    }
     setLoading(false);
   };
 
@@ -591,7 +705,12 @@ export default function Movimentacoes() {
     setSelectedIds((prev) => ({ ...prev, [id]: checked }));
   };
 
-  const buildPrintableHtml = (mode: "relatorio" | "comprovante", lote?: string, pagoEm?: string) => {
+  const buildPrintableHtmlForItems = (
+    mode: "relatorio" | "comprovante",
+    lote: string | undefined,
+    pagoEm: string | undefined,
+    items: Lancamento[],
+  ) => {
     const title = mode === "relatorio" ? "Relatório de Colheitas" : "Comprovante de Pagamento";
     const companyName = selectedCompany?.nome ?? "-";
     const emittedAt = new Date().toLocaleString("pt-BR");
@@ -616,17 +735,17 @@ export default function Movimentacoes() {
         : panhadores.find((p) => p.id === panhadorFilterId)?.nome ?? "-";
 
     const resumo = (() => {
-      const totalKg = selectedLancamentos.reduce((sum, it) => sum + it.peso_kg, 0);
-      const totalBalaios = selectedLancamentos.reduce((sum, it) => sum + (getBalaiosForLancamento(it) ?? 0), 0);
-      const totalValor = selectedLancamentos.reduce((sum, it) => sum + (it.valor_total ?? 0), 0);
-      const pendentes = selectedLancamentos.filter((it) => it.valor_total == null).length;
-      const pagos = selectedLancamentos.filter((it) => it.pago_em != null).length;
-      const valorPago = selectedLancamentos.reduce((sum, it) => sum + (it.pago_em != null ? (it.valor_total ?? 0) : 0), 0);
+      const totalKg = items.reduce((sum, it) => sum + it.peso_kg, 0);
+      const totalBalaios = items.reduce((sum, it) => sum + (getBalaiosForLancamento(it) ?? 0), 0);
+      const totalValor = items.reduce((sum, it) => sum + (it.valor_total ?? 0), 0);
+      const pendentes = items.filter((it) => it.valor_total == null).length;
+      const pagos = items.filter((it) => it.pago_em != null).length;
+      const valorPago = items.reduce((sum, it) => sum + (it.pago_em != null ? (it.valor_total ?? 0) : 0), 0);
       return { totalKg, totalBalaios, totalValor, pendentes, pagos, valorPago };
     })();
 
     const groups = new Map<string, { panhador: string; items: Lancamento[] }>();
-    for (const item of selectedLancamentos) {
+    for (const item of items) {
       const key = item.panhador_id;
       const existing = groups.get(key);
       if (existing) existing.items.push(item);
@@ -721,7 +840,7 @@ export default function Movimentacoes() {
             <h1>${title}</h1>
             <div class="meta">${metaRows}</div>
             <div class="kpis">
-              <div class="kpi"><div class="label">Itens</div><div class="value">${selectedLancamentos.length}</div></div>
+              <div class="kpi"><div class="label">Itens</div><div class="value">${items.length}</div></div>
               <div class="kpi"><div class="label">Total kg</div><div class="value">${resumo.totalKg.toFixed(2)} kg</div></div>
               <div class="kpi"><div class="label">Total balaios</div><div class="value">${resumo.totalBalaios.toFixed(2)}</div></div>
               <div class="kpi"><div class="label">${mode === "comprovante" ? "Valor pago" : "Valor"}</div><div class="value">${currencyFormatter.format(mode === "comprovante" ? resumo.valorPago : resumo.totalValor)}</div></div>
@@ -749,8 +868,12 @@ export default function Movimentacoes() {
     `;
   };
 
-  const openPrint = (mode: "relatorio" | "comprovante", lote?: string, pagoEm?: string) => {
-    if (selectedLancamentos.length === 0) {
+  const buildPrintableHtml = (mode: "relatorio" | "comprovante", lote?: string, pagoEm?: string) =>
+    buildPrintableHtmlForItems(mode, lote, pagoEm, selectedLancamentos);
+
+  const openPrint = (mode: "relatorio" | "comprovante", lote?: string, pagoEm?: string, itemsOverride?: Lancamento[]) => {
+    const items = itemsOverride ?? selectedLancamentos;
+    if (items.length === 0) {
       toast({
         title: "Selecione movimentações",
         description: "Marque uma ou mais linhas para gerar o documento.",
@@ -759,7 +882,7 @@ export default function Movimentacoes() {
       return;
     }
 
-    const html = buildPrintableHtml(mode, lote, pagoEm);
+    const html = itemsOverride ? buildPrintableHtmlForItems(mode, lote, pagoEm, itemsOverride) : buildPrintableHtml(mode, lote, pagoEm);
     const w = window.open("", "_blank");
     if (!w) {
       toast({ title: "Popup bloqueado", description: "Permita popups para gerar o PDF (imprimir).", variant: "destructive" });
@@ -953,6 +1076,82 @@ export default function Movimentacoes() {
     setEditSaving(true);
 
     try {
+      if (!navigator.onLine) {
+        const updatePayload: Record<string, unknown> = {
+          panhador_id: editForm.panhadorId,
+          peso_kg: pesoNumber,
+          preco_por_kg: precoNumber,
+          valor_total: valorNumber,
+          numero_bag: editForm.numeroBag.trim() ? editForm.numeroBag.trim() : null,
+          ...(propriedadePayload as Record<string, unknown>),
+        };
+
+        savePendingColheitaUpdate({
+          id: editTarget.id,
+          empresa_id: selectedCompany.id,
+          payload: updatePayload,
+        });
+
+        const panhadorNome = panhadores.find((p) => p.id === editForm.panhadorId)?.nome ?? editTarget.panhador;
+        const propNome =
+          !propriedadesSupported
+            ? editTarget.propriedade
+            : editForm.propriedadeId === PADRAO_OPTION
+              ? "padrao"
+              : propriedades.find((p) => p.id === editForm.propriedadeId)?.nome ?? editTarget.propriedade;
+        const lavNome =
+          !propriedadesSupported
+            ? editTarget.lavoura
+            : editForm.lavouraId === PADRAO_OPTION
+              ? "padrao"
+              : lavouras.find((l) => l.id === editForm.lavouraId)?.nome ?? editTarget.lavoura;
+
+        const applyLocalUpdate = (list: Lancamento[]) =>
+          list.map((it) =>
+            it.id === editTarget.id
+              ? {
+                  ...it,
+                  panhador_id: editForm.panhadorId,
+                  panhador: panhadorNome,
+                  propriedade_id:
+                    propriedadesSupported && editForm.propriedadeId !== PADRAO_OPTION ? toUuidOrNull(editForm.propriedadeId) : null,
+                  lavoura_id:
+                    propriedadesSupported && editForm.lavouraId !== PADRAO_OPTION ? toUuidOrNull(editForm.lavouraId) : null,
+                  propriedade: propNome,
+                  lavoura: lavNome,
+                  peso_kg: pesoNumber,
+                  preco_por_kg: precoNumber,
+                  valor_total: valorNumber,
+                  numero_bag: editForm.numeroBag.trim() ? editForm.numeroBag.trim() : null,
+                }
+              : it,
+          );
+
+        setLancamentos((prev) => applyLocalUpdate(prev));
+
+        const movCacheKey = cacheKey("movimentacoes_list", selectedCompany.id);
+        const token = getDeviceToken();
+        const deviceMovCacheKey = cacheKey(`movimentacoes_device_${token}`, selectedCompany.id);
+
+        const patchCache = (key: string) => {
+          const cached = readJson<{ cachedAt?: string; lancamentos: Lancamento[] } | null>(key, null);
+          if (!cached?.lancamentos?.length) return;
+          writeJson(key, {
+            ...cached,
+            cachedAt: new Date().toISOString(),
+            lancamentos: applyLocalUpdate(cached.lancamentos),
+          });
+        };
+
+        patchCache(movCacheKey);
+        patchCache(deviceMovCacheKey);
+
+        toast({ title: "Salvo offline", description: "A edição será sincronizada quando a internet voltar." });
+        setEditDialogOpen(false);
+        setEditTarget(null);
+        return;
+      }
+
       const { error: historyError } = await supabase.from("colheitas_historico").insert({
         colheita_id: editTarget.id,
         empresa_id: selectedCompany.id,
@@ -1042,9 +1241,16 @@ export default function Movimentacoes() {
       <main className="w-full px-2 sm:px-4 lg:px-6 py-4 space-y-3">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-base font-bold text-[hsl(24_25%_18%)] sm:text-2xl">Movimentações colheitas</h1>
-          <Button variant="outline" size="sm" className="rounded-full" onClick={loadLancamentos} disabled={loading}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            Atualizar
+          <Button
+            variant="outline"
+            size="icon"
+            className="rounded-full"
+            onClick={loadLancamentos}
+            disabled={loading}
+            aria-label="Atualizar"
+            title="Atualizar"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </Button>
         </div>
 
@@ -1289,9 +1495,17 @@ export default function Movimentacoes() {
                     </TableRow>
                   ) : (
                     filteredLancamentos.map((item) => (
-                      <TableRow key={item.id}>
+                      <TableRow
+                        key={item.id}
+                        className="cursor-pointer"
+                        onClick={() => {
+                          setDetailsTarget(item);
+                          setDetailsOpen(true);
+                        }}
+                        title="Abrir opções"
+                      >
                         <TableCell>
-                          <div className="flex items-center justify-center">
+                          <div className="flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
                             <Checkbox
                               checked={Boolean(selectedIds[item.id])}
                               onCheckedChange={(value) => toggleSelectOne(item.id, Boolean(value))}
@@ -1310,7 +1524,8 @@ export default function Movimentacoes() {
                                     variant="ghost"
                                     size="icon"
                                     className="h-7 w-7"
-                                    onClick={() => {
+                                    onClick={(e) => {
+                                      e.stopPropagation();
                                       setSyncLogTarget(item);
                                       setSyncLogOpen(true);
                                     }}
@@ -1354,7 +1569,7 @@ export default function Movimentacoes() {
                           </div>
                         </TableCell>
                         <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
+                          <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
                             <Button
                               variant="ghost"
                               size="icon"
@@ -1513,6 +1728,27 @@ export default function Movimentacoes() {
               ) : null}
 
               <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    openPrint("relatorio", undefined, undefined, [detailsTarget]);
+                  }}
+                >
+                  <FileText className="h-4 w-4" />
+                  Reimprimir
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setDetailsOpen(false);
+                    handleOpenEdit(detailsTarget);
+                  }}
+                  disabled={detailsTarget.codigo.startsWith("OFF-")}
+                >
+                  <Pencil className="h-4 w-4" />
+                  Editar
+                </Button>
                 {detailsTarget.codigo.startsWith("OFF-") ? (
                   <Button
                     onClick={async () => {

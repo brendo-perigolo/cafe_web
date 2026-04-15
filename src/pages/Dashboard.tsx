@@ -347,10 +347,10 @@ export default function Dashboard() {
       accent: "from-sky-50 to-white border-sky-100 text-sky-700",
     },
     {
-      label: "Aparelhos",
-      description: "Gestão de aparelhos",
-      icon: Smartphone,
-      action: () => navigate("/aparelhos"),
+      label: "Incluir lançamento",
+      description: "Novo lançamento",
+      icon: NotebookPen,
+      action: () => setLancamentoDialogOpen(true),
       accent: "from-violet-50 to-white border-violet-100 text-violet-700",
     },
     {

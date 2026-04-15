@@ -7,10 +7,13 @@ import { getDeviceToken, safeRandomUUID } from "@/lib/device";
 import { toUuidOrNull } from "@/lib/uuid";
 import {
   getPendingColheitas,
+  getPendingColheitasUpdates,
   getPendingPanhadorOps,
   PendingColheitaLocal,
+  PendingColheitaUpdateLocal,
   PendingPanhadorOp,
   setPendingColheitas,
+  setPendingColheitasUpdates,
   setPendingPanhadorOps,
 } from "@/lib/offline";
 
@@ -20,8 +23,9 @@ export type PendingPanhadorAction = PendingPanhadorOp["action"];
 
 export const getPendingCounts = () => {
   const colheitas = getPendingColheitas();
+  const colheitasUpdates = getPendingColheitasUpdates();
   const panhadores = getPendingPanhadorOps();
-  return { colheitas: colheitas.length, panhadores: panhadores.length };
+  return { colheitas: colheitas.length + colheitasUpdates.length, panhadores: panhadores.length };
 };
 
 export const useOfflineSync = () => {
@@ -91,6 +95,23 @@ export const useOfflineSync = () => {
 
   const savePendingPanhadorDeactivate = (empresaId: string, panhadorId: string) =>
     savePendingPanhadorOp({ action: "deactivate", empresa_id: empresaId, payload: { id: panhadorId } });
+
+  const savePendingColheitaUpdate = (update: Omit<PendingColheitaUpdateLocal, "created_at" | "sync_attempts" | "last_error" | "last_error_at">) => {
+    const pending = getPendingColheitasUpdates();
+    const newUpdate: PendingColheitaUpdateLocal = {
+      ...update,
+      created_at: new Date().toISOString(),
+      sync_attempts: 0,
+      last_error: null,
+      last_error_at: null,
+    };
+
+    // Replace any previous pending update for same colheita id (keep newest intent).
+    const next = pending.filter((it) => it.id !== update.id);
+    next.push(newUpdate);
+    setPendingColheitasUpdates(next);
+    return newUpdate;
+  };
 
   const syncPendingPanhadores = async (): Promise<Record<string, string>> => {
     if (!user) return;
@@ -292,9 +313,11 @@ export const useOfflineSync = () => {
     setSyncing(true);
     const pending = getPendingColheitas() as PendingColheita[];
 
+    const pendingUpdates = getPendingColheitasUpdates();
+
     const pendingPanhadores = getPendingPanhadorOps();
 
-    if (pending.length === 0 && pendingPanhadores.length === 0) {
+    if (pending.length === 0 && pendingPanhadores.length === 0 && pendingUpdates.length === 0) {
       setSyncing(false);
       return;
     }
@@ -409,9 +432,69 @@ export const useOfflineSync = () => {
 
       setPendingColheitas(remainingColheitas);
 
-      const totalBefore = pendingPanhadores.length + pending.length;
-      const remainingAfter = panhadoresRemaining + remainingColheitas.length;
-      const sentTotal = (panhadoresProcessed - panhadoresRemaining) + colheitasSent;
+      // 3) Sincroniza edições offline (updates)
+      let colheitasUpdatesSent = 0;
+      const remainingUpdates: PendingColheitaUpdateLocal[] = [];
+
+      for (const upd of pendingUpdates) {
+        try {
+          const raw = upd.payload ?? {};
+
+          const baseUpdate: Record<string, unknown> = {
+            ...(Object.prototype.hasOwnProperty.call(raw, "panhador_id") ? { panhador_id: toUuidOrNull(raw.panhador_id) } : {}),
+            ...(Object.prototype.hasOwnProperty.call(raw, "peso_kg") ? { peso_kg: raw.peso_kg } : {}),
+            ...(Object.prototype.hasOwnProperty.call(raw, "preco_por_kg") ? { preco_por_kg: raw.preco_por_kg } : {}),
+            ...(Object.prototype.hasOwnProperty.call(raw, "valor_total") ? { valor_total: raw.valor_total } : {}),
+            ...(Object.prototype.hasOwnProperty.call(raw, "numero_bag") ? { numero_bag: raw.numero_bag } : {}),
+            updated_at: new Date().toISOString(),
+          };
+
+          const extendedUpdate: Record<string, unknown> = {
+            ...baseUpdate,
+            ...(Object.prototype.hasOwnProperty.call(raw, "propriedade_id") ? { propriedade_id: toUuidOrNull(raw.propriedade_id) } : {}),
+            ...(Object.prototype.hasOwnProperty.call(raw, "lavoura_id") ? { lavoura_id: toUuidOrNull(raw.lavoura_id) } : {}),
+          };
+
+          let { error } = await supabase
+            .from("colheitas")
+            .update(extendedUpdate)
+            .eq("id", upd.id)
+            .eq("empresa_id", upd.empresa_id);
+
+          const code = error ? getErrorCode(error) : null;
+          const message = error ? getErrorMessage(error).toLowerCase() : "";
+
+          const looksLikeMissingColumn =
+            code === "42703" || message.includes("column") || message.includes("does not exist") || message.includes("propriedade") || message.includes("lavoura");
+
+          if (error && looksLikeMissingColumn) {
+            ({ error } = await supabase
+              .from("colheitas")
+              .update(baseUpdate)
+              .eq("id", upd.id)
+              .eq("empresa_id", upd.empresa_id));
+          }
+
+          if (error) throw error;
+          colheitasUpdatesSent += 1;
+        } catch (error) {
+          console.error("Erro ao sincronizar edição offline:", error);
+          const next: PendingColheitaUpdateLocal = {
+            ...upd,
+            sync_attempts: (upd.sync_attempts ?? 0) + 1,
+            last_error: formatSyncError(error),
+            last_error_at: new Date().toISOString(),
+          };
+          remainingUpdates.push(next);
+          continue;
+        }
+      }
+
+      setPendingColheitasUpdates(remainingUpdates);
+
+      const totalBefore = pendingPanhadores.length + pending.length + pendingUpdates.length;
+      const remainingAfter = panhadoresRemaining + remainingColheitas.length + remainingUpdates.length;
+      const sentTotal = (panhadoresProcessed - panhadoresRemaining) + colheitasSent + colheitasUpdatesSent;
 
       if (sentTotal > 0 && remainingAfter === 0) {
         toast({
@@ -455,6 +538,7 @@ export const useOfflineSync = () => {
     isOnline,
     syncing,
     savePendingColheita,
+    savePendingColheitaUpdate,
     savePendingPanhadorCreate,
     savePendingPanhadorUpdate,
     savePendingPanhadorDeactivate,
