@@ -436,13 +436,17 @@ export default function Dashboard() {
   const sidebarItems = useMemo<NavigationItem[]>(
     () => [
       ...navigationItems,
-      {
-        label: "Sair do sistema",
-        icon: LogOut,
-        action: signOut,
-      },
+      ...(isOnline
+        ? ([
+            {
+              label: "Sair do sistema",
+              icon: LogOut,
+              action: signOut,
+            },
+          ] as NavigationItem[])
+        : []),
     ],
-    [signOut],
+    [isOnline, signOut],
   );
 
   if (loading) {

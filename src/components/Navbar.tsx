@@ -5,6 +5,7 @@ import { MASTER_EMAIL } from "@/constants/master";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { useEffect, useState } from "react";
 
 export const Navbar = () => {
   const { signOut, selectedCompany, user, companies } = useAuth();
@@ -12,6 +13,17 @@ export const Navbar = () => {
   const location = useLocation();
   const isMaster = user?.email?.toLowerCase() === MASTER_EMAIL.toLowerCase();
   const canSwitchCompany = (companies?.length ?? 0) > 1;
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+
+  useEffect(() => {
+    const handleOnlineChange = () => setIsOnline(navigator.onLine);
+    window.addEventListener("online", handleOnlineChange);
+    window.addEventListener("offline", handleOnlineChange);
+    return () => {
+      window.removeEventListener("online", handleOnlineChange);
+      window.removeEventListener("offline", handleOnlineChange);
+    };
+  }, []);
 
   const isActive = (path: string) => location.pathname === path;
   const isConfig = isActive("/configuracoes");
@@ -193,9 +205,23 @@ export const Navbar = () => {
                 <Plus className="h-4 w-4" />
               </Button>
             )}
-            <Button variant="ghost" size="icon" onClick={signOut} aria-label="Sair">
-              <LogOut className="h-5 w-5" />
-            </Button>
+            {!isOnline && canSwitchCompany ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => navigate("/selecionar-empresa")}
+                aria-label="Trocar empresa"
+                title="Trocar empresa"
+              >
+                <RefreshCcw className="h-5 w-5" />
+              </Button>
+            ) : null}
+
+            {isOnline ? (
+              <Button variant="ghost" size="icon" onClick={signOut} aria-label="Sair" title="Sair">
+                <LogOut className="h-5 w-5" />
+              </Button>
+            ) : null}
           </div>
         </div>
 
@@ -255,9 +281,11 @@ export const Navbar = () => {
                 <RefreshCcw className="h-4 w-4" />
               </Button>
             )}
-            <Button variant="ghost" size="icon" onClick={signOut}>
-              <LogOut className="h-4 w-4" />
-            </Button>
+            {isOnline ? (
+              <Button variant="ghost" size="icon" onClick={signOut} title="Sair" aria-label="Sair">
+                <LogOut className="h-4 w-4" />
+              </Button>
+            ) : null}
           </div>
         </div>
       </div>

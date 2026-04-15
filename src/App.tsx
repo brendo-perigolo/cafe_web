@@ -9,6 +9,7 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { lazy, Suspense } from "react";
 import { PwaInstallBanner } from "@/components/PwaInstallBanner";
 import { PwaCacheGuard } from "@/components/PwaCacheGuard";
+import { LoadingScreen } from "@/components/LoadingScreen";
 
 const Auth = lazy(() => import("./pages/Auth"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -27,11 +28,7 @@ const PlanosContas = lazy(() => import("./pages/PlanosContas"));
 
 const queryClient = new QueryClient();
 
-const RouteFallback = () => (
-  <div className="flex min-h-screen items-center justify-center">
-    <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
-  </div>
-);
+const RouteFallback = () => <LoadingScreen title="Carregando..." detail="Abrindo página" />;
 
 const RootRedirect = () => {
   const { user, loading } = useAuth();

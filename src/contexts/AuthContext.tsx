@@ -666,6 +666,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     prefetchEmpresaData(selectedCompany.id);
   }, [user?.id, selectedCompany?.id]);
 
+  useEffect(() => {
+    const handleOnline = () => {
+      if (!user || !selectedCompany?.id) return;
+      prefetchEmpresaData(selectedCompany.id);
+    };
+
+    window.addEventListener("online", handleOnline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [user?.id, selectedCompany?.id]);
+
   const selectCompany = (empresaId: string) => {
     const company = companies.find((empresa) => empresa.id === empresaId) ?? null;
     setSelectedCompany(company);

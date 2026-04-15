@@ -5,12 +5,23 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { MASTER_EMAIL } from "@/constants/master";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 export default function SelectEmpresa() {
   const { companies, companiesLoading, selectCompany, signOut, user } = useAuth();
   const navigate = useNavigate();
   const isMaster = user?.email?.toLowerCase() === MASTER_EMAIL.toLowerCase();
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+
+  useEffect(() => {
+    const handleOnlineChange = () => setIsOnline(navigator.onLine);
+    window.addEventListener("online", handleOnlineChange);
+    window.addEventListener("offline", handleOnlineChange);
+    return () => {
+      window.removeEventListener("online", handleOnlineChange);
+      window.removeEventListener("offline", handleOnlineChange);
+    };
+  }, []);
 
   const getReturnPath = () => {
     const stored = window.localStorage.getItem("safra:last_path") || window.sessionStorage.getItem("safra:last_path");
@@ -60,9 +71,11 @@ export default function SelectEmpresa() {
                 {isMaster && (
                   <Button variant="default" onClick={() => navigate("/master")}>Painel master</Button>
                 )}
-                <Button variant="outline" onClick={signOut}>
-                  Voltar para login
-                </Button>
+                {isOnline ? (
+                  <Button variant="outline" onClick={signOut}>
+                    Voltar para login
+                  </Button>
+                ) : null}
               </div>
             </CardContent>
           </Card>
