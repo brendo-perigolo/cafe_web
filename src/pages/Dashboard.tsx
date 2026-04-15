@@ -92,6 +92,7 @@ export default function Dashboard() {
   const [colheitas, setColheitas] = useState<ColheitaRecord[]>([]);
   const [panhadoresAtivos, setPanhadoresAtivos] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [cacheReady, setCacheReady] = useState<boolean | null>(null);
   const { user, selectedCompany, signOut } = useAuth();
   const { isOnline, syncing, syncPendingData } = useOfflineSync();
@@ -112,19 +113,47 @@ export default function Dashboard() {
 
     const statsCacheKey = cacheKey("dashboard_stats", selectedCompany.id);
 
+    const cached = readJson<{ cachedAt?: string; colheitas: ColheitaRecord[]; panhadoresAtivos: number } | null>(
+      statsCacheKey,
+      null,
+    );
+
+    const hasCached = Boolean(cached?.colheitas?.length || cached?.panhadoresAtivos != null);
+
+    // Always hydrate from cache first for fast navigation (especially offline).
+    if (cached?.colheitas) {
+      setColheitas(cached.colheitas);
+      setPanhadoresAtivos(cached.panhadoresAtivos ?? 0);
+      setLoading(false);
+    }
+
+    // Offline: don't even try Supabase (it can hang/time out and makes the app feel slow).
+    if (!navigator.onLine) {
+      setLoading(!hasCached);
+      return;
+    }
+
+    // Online: refresh in background with a short timeout.
+    setRefreshing(true);
+
     try {
       const [{ data: colheitasData, error: colheitasError }, { data: panhadoresData, error: panhadoresError }] =
-        await Promise.all([
-          supabase
-            .from("colheitas")
-            .select("id, codigo, peso_kg, quantidade_balaios, valor_total, data_colheita, numero_bag, panhadores!inner(id, nome)")
-            .eq("empresa_id", selectedCompany.id)
-            .order("data_colheita", { ascending: false }),
-          supabase
-            .from("panhadores")
-            .select("id")
-            .eq("empresa_id", selectedCompany.id)
-            .eq("ativo", true),
+        await Promise.race([
+          Promise.all([
+            supabase
+              .from("colheitas")
+              .select("id, codigo, peso_kg, quantidade_balaios, valor_total, data_colheita, numero_bag, panhadores!inner(id, nome)")
+              .eq("empresa_id", selectedCompany.id)
+              .order("data_colheita", { ascending: false }),
+            supabase
+              .from("panhadores")
+              .select("id")
+              .eq("empresa_id", selectedCompany.id)
+              .eq("ativo", true),
+          ]),
+          new Promise<never>((_, reject) =>
+            window.setTimeout(() => reject(new Error("Timeout ao carregar dashboard")), 6000),
+          ),
         ]);
 
       if (colheitasError) throw colheitasError;
@@ -155,19 +184,8 @@ export default function Dashboard() {
     } catch (error) {
       console.error("Erro ao carregar estatísticas:", error);
 
-      const cached = readJson<{ cachedAt?: string; colheitas: ColheitaRecord[]; panhadoresAtivos: number } | null>(
-        statsCacheKey,
-        null,
-      );
-
-      if (cached?.colheitas) {
-        setColheitas(cached.colheitas);
-        setPanhadoresAtivos(cached.panhadoresAtivos ?? 0);
-        toast({
-          title: "Modo offline",
-          description: "Mostrando últimos dados salvos no dispositivo.",
-        });
-      } else {
+      // Keep cached data if we have it; avoid spamming toasts on every Dashboard visit.
+      if (!hasCached) {
         toast({
           title: "Erro ao carregar dados",
           description: "Tente novamente mais tarde",
@@ -175,12 +193,12 @@ export default function Dashboard() {
         });
       }
     } finally {
+      setRefreshing(false);
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    setLoading(true);
     loadStats();
   }, [user, selectedCompany?.id]);
 
@@ -209,7 +227,6 @@ export default function Dashboard() {
 
   const handleSync = async () => {
     try {
-      setLoading(true);
       await syncPendingData();
       setPendingCounts(getPendingCounts());
     } catch (error) {
