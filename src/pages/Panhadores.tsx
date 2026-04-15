@@ -1240,9 +1240,7 @@ export default function Panhadores() {
       <main className="mx-auto w-full max-w-6xl px-4 py-8 space-y-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-sm uppercase tracking-[0.4em] text-muted-foreground">Equipe</p>
-            <h1 className="text-3xl font-bold text-[hsl(24_25%_18%)]">Gestão de panhadores</h1>
-            <p className="text-sm text-muted-foreground">Cadastre e acompanhe toda a equipe de campo</p>
+            <h1 className="text-lg font-semibold text-[hsl(24_25%_18%)]">Panhadores</h1>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button
@@ -1256,79 +1254,6 @@ export default function Panhadores() {
               <FileText className="mr-2 h-4 w-4" />
               Relatório de bags
             </Button>
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button className="rounded-full">
-                <Plus className="mr-2 h-4 w-4" />
-                Novo panhador
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Cadastrar panhador</DialogTitle>
-                <DialogDescription>Informe os dados pessoais do panhador</DialogDescription>
-              </DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="nome">Nome</Label>
-                  <Input
-                    id="nome"
-                    value={nome}
-                    onChange={(e) => setNome(e.target.value)}
-                    placeholder="João Silva"
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="apelido">Apelido (opcional)</Label>
-                  <Input
-                    id="apelido"
-                    value={apelido}
-                    onChange={(e) => setApelido(e.target.value)}
-                    placeholder="Joãozinho"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="cpf">CPF (opcional)</Label>
-                  <Input
-                    id="cpf"
-                    value={cpf}
-                    onChange={(e) => setCpf(e.target.value)}
-                    placeholder="000.000.000-00"
-                    maxLength={14}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="telefone">Telefone (opcional)</Label>
-                  <Input
-                    id="telefone"
-                    type="tel"
-                    value={telefone}
-                    onChange={(e) => setTelefone(e.target.value)}
-                    placeholder="(18) 99999-8888"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="bag">Bag vinculada (opcional)</Label>
-                  <Input
-                    id="bag"
-                    value={bagNumero}
-                    onChange={(e) => setBagNumero(e.target.value)}
-                    placeholder="Ex: 20"
-                    maxLength={60}
-                  />
-                </div>
-
-                <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? "Cadastrando..." : "Cadastrar"}
-                </Button>
-              </form>
-            </DialogContent>
-          </Dialog>
           </div>
         </div>
 
