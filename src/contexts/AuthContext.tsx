@@ -208,15 +208,28 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
     );
 
-    // Check existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
-      setAuthInitialized(true);
-    });
+    let cancelled = false;
 
-    return () => subscription.unsubscribe();
+    // Check existing session (must never leave the app stuck in loading on offline/edge cases)
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (cancelled) return;
+        setSession(session);
+        setUser(session?.user ?? null);
+      } catch (error) {
+        console.warn("Falha ao recuperar sessão do Supabase (seguindo sem sessão):", error);
+      } finally {
+        if (cancelled) return;
+        setLoading(false);
+        setAuthInitialized(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, []);
 
   useEffect(() => {

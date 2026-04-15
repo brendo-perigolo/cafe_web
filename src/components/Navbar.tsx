@@ -1,4 +1,4 @@
-import { LogOut, Users, Plus, BarChart3, Building2, RefreshCcw, Settings, Smartphone, MapPinned, Menu, Coins, FileText } from "lucide-react";
+import { LogOut, Users, Plus, BarChart3, Building2, RefreshCcw, Settings, Smartphone, MapPinned, Menu, Coins, FileText, Check } from "lucide-react";
 import { Button } from "./ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { MASTER_EMAIL } from "@/constants/master";
@@ -14,6 +14,68 @@ export const Navbar = () => {
   const canSwitchCompany = (companies?.length ?? 0) > 1;
 
   const isActive = (path: string) => location.pathname === path;
+  const isConfig = isActive("/configuracoes");
+
+  const dispatchNavEvent = (name: string) => {
+    try {
+      window.dispatchEvent(new Event(name));
+    } catch {
+      // ignore
+    }
+  };
+
+  const triggerConfigSave = () => {
+    dispatchNavEvent("safra:config_save");
+  };
+
+  const pageAction = (() => {
+    if (isConfig) {
+      return {
+        label: "Salvar",
+        ariaLabel: "Salvar configurações",
+        title: "Salvar",
+        onClick: triggerConfigSave,
+      } as const;
+    }
+
+    switch (location.pathname) {
+      case "/panhadores":
+        return {
+          label: "Panhador",
+          ariaLabel: "Novo panhador",
+          title: "Novo panhador",
+          onClick: () => dispatchNavEvent("safra:panhadores_add"),
+        } as const;
+      case "/aparelhos":
+        return {
+          label: "Aparelho",
+          ariaLabel: "Cadastrar aparelho",
+          title: "Cadastrar aparelho",
+          onClick: () => dispatchNavEvent("safra:aparelhos_add"),
+        } as const;
+      case "/propriedades":
+        return {
+          label: "Propriedade",
+          ariaLabel: "Cadastrar propriedade",
+          title: "Cadastrar propriedade",
+          onClick: () => dispatchNavEvent("safra:propriedades_add"),
+        } as const;
+      case "/movimentacoes":
+        return {
+          label: "Movimentação",
+          ariaLabel: "Adicionar movimentação",
+          title: "Adicionar movimentação",
+          onClick: () => navigate("/lancamento"),
+        } as const;
+      default:
+        return {
+          label: "Lançamento",
+          ariaLabel: "Novo lançamento",
+          title: "Novo lançamento",
+          onClick: () => navigate("/lancamento"),
+        } as const;
+    }
+  })();
 
   const navItems = [
     { label: "Dashboard", icon: BarChart3, path: "/dashboard" },
@@ -110,14 +172,17 @@ export const Navbar = () => {
           </div>
 
           <div className="flex items-center gap-2">
-            <Button
-              variant={isActive("/lancamento") ? "default" : "secondary"}
-              size="icon"
-              onClick={() => navigate("/lancamento")}
-              aria-label="Novo lançamento"
-            >
-              <Plus className="h-5 w-5" />
-            </Button>
+            {isConfig ? (
+              <Button variant="default" onClick={pageAction.onClick} aria-label={pageAction.ariaLabel} title={pageAction.title}>
+                <Check className="mr-2 h-4 w-4" />
+                {pageAction.label}
+              </Button>
+            ) : (
+              <Button variant="secondary" onClick={pageAction.onClick} aria-label={pageAction.ariaLabel} title={pageAction.title}>
+                <Plus className="mr-2 h-4 w-4" />
+                {pageAction.label}
+              </Button>
+            )}
             <Button variant="ghost" size="icon" onClick={signOut} aria-label="Sair">
               <LogOut className="h-5 w-5" />
             </Button>
@@ -145,9 +210,15 @@ export const Navbar = () => {
             <Button variant={isActive("/dashboard") ? "default" : "ghost"} size="icon" onClick={() => navigate("/dashboard")}>
               <BarChart3 className="h-4 w-4" />
             </Button>
-            <Button variant={isActive("/lancamento") ? "default" : "ghost"} size="icon" onClick={() => navigate("/lancamento")}>
-              <Plus className="h-4 w-4" />
-            </Button>
+            {isConfig ? (
+              <Button variant="default" size="icon" onClick={pageAction.onClick} aria-label={pageAction.ariaLabel} title={pageAction.title}>
+                <Check className="h-4 w-4" />
+              </Button>
+            ) : (
+              <Button variant="secondary" size="icon" onClick={pageAction.onClick} aria-label={pageAction.ariaLabel} title={pageAction.title}>
+                <Plus className="h-4 w-4" />
+              </Button>
+            )}
             <Button variant={isActive("/panhadores") ? "default" : "ghost"} size="icon" onClick={() => navigate("/panhadores")}>
               <Users className="h-4 w-4" />
             </Button>

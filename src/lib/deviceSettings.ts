@@ -1,6 +1,12 @@
 import { cacheKey, readJson, writeJson } from "@/lib/offline";
 
 export type DeviceLancamentoSettings = {
+  // Modo de lançamento
+  // - padrao: usuário informa peso (kg) e preço por kg ou por balaio
+  // - somente_balaio: usuário informa qtd. balaios e preço por balaio; peso é calculado pelo kg/balaio padrão
+  // - peso_medio_balaio: usuário informa peso (kg), kg médio/balaio e preço por balaio; qtd. balaios é calculada
+  lancamento_modo?: "padrao" | "somente_balaio" | "peso_medio_balaio";
+
   // Balaio
   usar_kg_por_balaio_padrao?: boolean; // se true, pré-preenche o campo no lançamento
   kg_por_balaio_padrao?: number | null; // valor padrão salvo no aparelho

@@ -138,6 +138,12 @@ export default function Panhadores() {
   const [pagamentoMetodo, setPagamentoMetodo] = useState<"dinheiro" | "pix" | "cartao" | "cheque">("dinheiro");
   const [pagamentoChequeNumero, setPagamentoChequeNumero] = useState<string>("");
   const [pagamentoMetodoDialogOpen, setPagamentoMetodoDialogOpen] = useState(false);
+
+  useEffect(() => {
+    const handler = () => setDialogOpen(true);
+    window.addEventListener("safra:panhadores_add", handler);
+    return () => window.removeEventListener("safra:panhadores_add", handler);
+  }, []);
   const buildAndPrintComprovanteMovimentacao = (item: LancamentoPagamentoRow) => {
     if (!selectedCompany || !user) return;
     if (!item.pago_em) {

@@ -25,6 +25,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { getPendingCounts, useOfflineSync } from "@/hooks/useOfflineSync";
 import { toast } from "@/hooks/use-toast";
 import { cacheKey, readJson, writeJson } from "@/lib/offline";
+import { checkPwaCacheHealth } from "@/lib/pwaCache";
 import { cn } from "@/lib/utils";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Pie, PieChart, XAxis, Cell } from "recharts";
@@ -85,6 +86,7 @@ export default function Dashboard() {
   const [colheitas, setColheitas] = useState<ColheitaRecord[]>([]);
   const [panhadoresAtivos, setPanhadoresAtivos] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [cacheReady, setCacheReady] = useState<boolean | null>(null);
   const { user, selectedCompany, signOut } = useAuth();
   const { isOnline, syncing, syncPendingData } = useOfflineSync();
   const [pendingCounts, setPendingCounts] = useState(() => getPendingCounts());
@@ -177,6 +179,25 @@ export default function Dashboard() {
   }, [user, selectedCompany?.id]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const health = await checkPwaCacheHealth();
+        if (cancelled) return;
+        setCacheReady(health.ready);
+      } catch {
+        if (cancelled) return;
+        setCacheReady(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOnline]);
+
+  useEffect(() => {
     setPendingCounts(getPendingCounts());
   }, [isOnline, syncing, lancamentoDialogOpen, selectedCompany?.id]);
 
@@ -204,6 +225,10 @@ export default function Dashboard() {
     [colheitas],
   );
   const colheitasCount = colheitas.length;
+  const mediaPorLancamento = useMemo(() => {
+    if (!colheitasCount) return 0;
+    return totalColheita / colheitasCount;
+  }, [colheitasCount, totalColheita]);
   const colheitasComValor = useMemo(() => colheitas.filter((item) => item.valor_total != null).length, [colheitas]);
   const colheitasPendentes = colheitasCount - colheitasComValor;
 
@@ -353,6 +378,36 @@ export default function Dashboard() {
       helper: "Panhadores ativos",
       icon: Users,
     },
+    {
+      label: "Bags únicos",
+      value: uniqueBagsCount,
+      helper: "No período mostrado",
+      icon: Package,
+    },
+    {
+      label: "Média / bag",
+      value: `${mediaPorBag.toFixed(1)} kg`,
+      helper: "Baseada em bags únicos",
+      icon: Coffee,
+    },
+    {
+      label: "Média / lançamento",
+      value: `${mediaPorLancamento.toFixed(1)} kg`,
+      helper: "Peso médio por registro",
+      icon: Coffee,
+    },
+    {
+      label: "Com valor",
+      value: colheitasComValor,
+      helper: "Registros fechados",
+      icon: Coins,
+    },
+    {
+      label: "Pendentes",
+      value: Math.max(colheitasPendentes, 0),
+      helper: "Aguardando valor",
+      icon: Clock3,
+    },
   ];
 
   const sidebarItems = useMemo<NavigationItem[]>(
@@ -437,6 +492,15 @@ export default function Dashboard() {
                         <span className={cn("h-2.5 w-2.5 rounded-full", isOnline ? "bg-emerald-500" : "bg-rose-500")} />
                         {isOnline ? "Online" : "Offline"}
                       </div>
+                      <div className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                        <span
+                          className={cn(
+                            "h-2.5 w-2.5 rounded-full",
+                            cacheReady === null ? "bg-slate-400" : cacheReady ? "bg-emerald-500" : "bg-amber-500",
+                          )}
+                        />
+                        {cacheReady === null ? "Checando cache" : cacheReady ? "Cache OK" : "Cache pendente"}
+                      </div>
                       <span className="font-mono">v{__APP_VERSION__}</span>
                     </div>
                   </div>
@@ -479,39 +543,43 @@ export default function Dashboard() {
 
             <Card className="rounded-3xl border border-slate-100 bg-white shadow-coffee">
               <CardHeader className="pb-4">
-                <CardTitle className="font-display text-lg sm:text-xl">Últimas colheitas</CardTitle>
-                <CardDescription>Atualizado em tempo real</CardDescription>
+                <CardTitle className="font-display text-base sm:text-lg">Últimas colheitas</CardTitle>
+                <CardDescription className="text-xs">Atualizado em tempo real</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="max-h-[260px] space-y-2 overflow-y-auto pr-2 sm:max-h-[360px] sm:space-y-3">
+                <div className="max-h-[240px] space-y-2 overflow-y-auto pr-2 sm:max-h-[360px]">
                   {ultimasColheitas.length === 0 && (
                     <p className="text-center text-sm text-muted-foreground">Nenhuma colheita registrada ainda.</p>
                   )}
                   {ultimasColheitas.map((colheita) => (
-                    <div key={colheita.id} className="rounded-xl border border-slate-200/60 bg-slate-50/60 px-3 py-1.5">
-                      <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.3em] text-muted-foreground">
+                    <div key={colheita.id} className="rounded-xl border border-slate-200/60 bg-slate-50/60 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
                         <span className="font-mono">#{colheita.codigo}</span>
-                        <span>{dateTimeFormatter.format(new Date(colheita.data_colheita))}</span>
+                        <span className="font-mono tabular-nums">{dateTimeFormatter.format(new Date(colheita.data_colheita))}</span>
                       </div>
-                      <div className="mt-1.5 flex items-start justify-between gap-3 text-sm">
-                        <div>
-                          <p className="font-semibold text-[hsl(24_25%_25%)]">{colheita.panhador.nome}</p>
-                          <p className="text-xs text-muted-foreground">
-                            <Calendar className="mr-1 inline h-3 w-3" />
-                            {new Date(colheita.data_colheita).toLocaleDateString("pt-BR")}
+
+                      <div className="mt-1.5 grid grid-cols-[1fr_auto] gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-[hsl(24_25%_25%)]">{colheita.panhador.nome}</p>
+                          <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                            <Calendar className="h-3 w-3" />
+                            <span className="tabular-nums">
+                              {new Date(colheita.data_colheita).toLocaleDateString("pt-BR")}
+                            </span>
                           </p>
                         </div>
+
                         <div className="text-right">
-                          <p className="text-sm font-semibold text-[hsl(24_35%_30%)]">{colheita.peso_kg.toFixed(2)} kg</p>
-                          <p className="text-xs text-muted-foreground">
+                          <p className="text-sm font-semibold tabular-nums text-[hsl(24_35%_30%)]">{colheita.peso_kg.toFixed(2)} kg</p>
+                          <p className="text-[11px] text-muted-foreground tabular-nums">
                             {colheita.quantidade_balaios != null ? `${colheita.quantidade_balaios.toFixed(2)} balaios` : "- balaios"}
                           </p>
-                          <p className="text-xs text-muted-foreground">
+                          <p className="text-[11px] text-muted-foreground tabular-nums">
                             {colheita.quantidade_balaios && colheita.quantidade_balaios > 0
                               ? `Média ${(colheita.peso_kg / colheita.quantidade_balaios).toFixed(2)} kg/balaio`
                               : "Média -"}
                           </p>
-                          <p className="mt-0.5 text-xs text-muted-foreground">
+                          <p className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">
                             {colheita.valor_total != null ? currencyFormatter.format(colheita.valor_total) : "Valor pendente"}
                           </p>
                         </div>
@@ -523,16 +591,21 @@ export default function Dashboard() {
             </Card>
           </section>
 
-          <section className="mt-6 grid gap-4 md:grid-cols-4">
+          <section className="mt-6 grid grid-cols-3 gap-3 sm:gap-4">
             {statsCards.map((stat) => (
               <Card key={stat.label} className="rounded-2xl border border-slate-100 bg-white/90 shadow-coffee">
-                <CardContent className="flex flex-col gap-2 py-5">
-                  <div className="flex items-center justify-between text-xs uppercase tracking-[0.4em] text-muted-foreground">
-                    {stat.label}
+                <CardContent className="flex flex-col gap-1.5 p-3 sm:p-4">
+                  <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.35em] text-muted-foreground">
+                    <span className="truncate">{stat.label}</span>
                     <stat.icon className="h-4 w-4" />
                   </div>
-                  <p className="font-display text-3xl text-[hsl(24_30%_25%)]">{stat.value}</p>
-                  <p className="text-xs text-muted-foreground">{stat.helper}</p>
+                  <p
+                    className="truncate font-display text-base leading-tight text-[hsl(24_30%_25%)] sm:text-xl"
+                    title={String(stat.value)}
+                  >
+                    {stat.value}
+                  </p>
+                  <p className="hidden text-[11px] text-muted-foreground sm:block">{stat.helper}</p>
                 </CardContent>
               </Card>
             ))}

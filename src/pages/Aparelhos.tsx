@@ -31,6 +31,12 @@ export default function Aparelhos() {
   const [aparelhos, setAparelhos] = useState<Aparelho[]>([]);
   const [cadastrarOpen, setCadastrarOpen] = useState(false);
 
+  useEffect(() => {
+    const handler = () => setCadastrarOpen(true);
+    window.addEventListener("safra:aparelhos_add", handler);
+    return () => window.removeEventListener("safra:aparelhos_add", handler);
+  }, []);
+
   const loadAparelhos = async () => {
     if (!user || !selectedCompany) {
       setAparelhos([]);

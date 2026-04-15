@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { lazy, Suspense } from "react";
 import { PwaInstallBanner } from "@/components/PwaInstallBanner";
+import { PwaCacheGuard } from "@/components/PwaCacheGuard";
 
 const Auth = lazy(() => import("./pages/Auth"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -47,6 +48,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <PwaInstallBanner />
+        <PwaCacheGuard />
         <AuthProvider>
           <Suspense fallback={<RouteFallback />}>
             <Routes>

@@ -304,6 +304,12 @@ export default function PropriedadesLavouras() {
     setPropriedadeModalOpen(true);
   };
 
+  useEffect(() => {
+    const handler = () => openCreatePropriedade();
+    window.addEventListener("safra:propriedades_add", handler);
+    return () => window.removeEventListener("safra:propriedades_add", handler);
+  }, [selectedCompany?.id]);
+
   const openEditPropriedade = (item: Tables<"propriedades">) => {
     setPropriedadeEditing(item);
     setPropNome(item.nome ?? "");

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Navbar } from "@/components/Navbar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
@@ -25,12 +26,14 @@ interface LavouraOption {
 
 export default function Configuracoes() {
   const { user, selectedCompany } = useAuth();
+  const formRef = useRef<HTMLFormElement | null>(null);
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [kgPorBalaio, setKgPorBalaio] = useState<string>("");
   const [usarKgPorBalaioPadrao, setUsarKgPorBalaioPadrao] = useState(true);
   const [kgPorLitro, setKgPorLitro] = useState<string>("1");
   const [precoPorBalaioPadrao, setPrecoPorBalaioPadrao] = useState(false);
+  const [lancamentoModo, setLancamentoModo] = useState<"padrao" | "somente_balaio" | "peso_medio_balaio">("padrao");
 
   const [mostrarPropriedadeLavoura, setMostrarPropriedadeLavoura] = useState(true);
   const [usarPropriedadeLavouraPadrao, setUsarPropriedadeLavouraPadrao] = useState(false);
@@ -59,6 +62,7 @@ export default function Configuracoes() {
       setInitialLoading(true);
 
       const settings = getDeviceLancamentoSettings(selectedCompany.id);
+      setLancamentoModo(settings.lancamento_modo ?? "padrao");
       setUsarKgPorBalaioPadrao(settings.usar_kg_por_balaio_padrao ?? true);
       setKgPorBalaio(
         settings.kg_por_balaio_padrao != null && Number.isFinite(Number(settings.kg_por_balaio_padrao))
@@ -109,6 +113,17 @@ export default function Configuracoes() {
     load();
   }, [user, selectedCompany?.id]);
 
+  useEffect(() => {
+    const onSave = () => {
+      formRef.current?.requestSubmit();
+    };
+
+    window.addEventListener("safra:config_save", onSave);
+    return () => {
+      window.removeEventListener("safra:config_save", onSave);
+    };
+  }, []);
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -143,6 +158,17 @@ export default function Configuracoes() {
       return;
     }
 
+    if (lancamentoModo !== "padrao") {
+      if (parsed == null || !Number.isFinite(parsed) || parsed <= 0) {
+        toast({
+          title: "Kg médio do balaio obrigatório",
+          description: "Para usar lançamento por balaio/peso médio, configure o kg médio do balaio (padrão).",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
     if (usarPropriedadeLavouraPadrao) {
       if (!propriedadePadraoId) {
         toast({
@@ -167,6 +193,7 @@ export default function Configuracoes() {
     setLoading(true);
     try {
       setDeviceLancamentoSettings(selectedCompany.id, {
+        lancamento_modo: lancamentoModo,
         usar_kg_por_balaio_padrao: usarKgPorBalaioPadrao,
         kg_por_balaio_padrao: parsed,
         kg_por_litro: parsedKgPorLitro,
@@ -201,158 +228,194 @@ export default function Configuracoes() {
     <div className="min-h-screen bg-background">
       <Navbar />
       <main className="container mx-auto max-w-2xl p-4 space-y-6">
-        <h1 className="text-3xl font-bold">Configurações</h1>
+        <h1 className="text-3xl font-bold">Configuração</h1>
 
         <Card className="shadow-coffee">
           <CardHeader>
-            <CardTitle>Configurações do Aparelho</CardTitle>
-            <CardDescription>
-              Essas preferências ficam salvas localmente neste dispositivo.
-            </CardDescription>
+            <CardTitle>Configuração</CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSave} className="space-y-4">
-              <div className="flex items-center justify-between rounded-lg border p-3">
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">Usar kg/balaio padrão</p>
-                  <p className="text-xs text-muted-foreground">
-                      Quando ativo, o lançamento começa com esse valor (mas você pode editar).
-                  </p>
-                </div>
-                <Switch
-                  checked={usarKgPorBalaioPadrao}
-                  onCheckedChange={setUsarKgPorBalaioPadrao}
-                  disabled={initialLoading}
-                />
-              </div>
+            <form ref={formRef} onSubmit={handleSave} className="space-y-4">
+              <Accordion type="multiple" defaultValue={["lancamento"]} className="w-full">
+                <AccordionItem value="lancamento">
+                  <AccordionTrigger>Lançamento</AccordionTrigger>
+                  <AccordionContent>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="kgPorBalaio">Kg médio do balaio (padrão)</Label>
+                        <Input
+                          id="kgPorBalaio"
+                          type="number"
+                          step="0.01"
+                          value={kgPorBalaio}
+                          onChange={(e) => setKgPorBalaio(e.target.value)}
+                          placeholder={initialLoading ? "Carregando..." : "0.00"}
+                          disabled={initialLoading}
+                        />
+                      </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="kgPorBalaio">Kg médio do balaio (padrão)</Label>
-                <Input
-                  id="kgPorBalaio"
-                  type="number"
-                  step="0.01"
-                  value={kgPorBalaio}
-                  onChange={(e) => setKgPorBalaio(e.target.value)}
-                  placeholder={initialLoading ? "Carregando..." : "0.00"}
-                  disabled={initialLoading}
-                />
-                {!usarKgPorBalaioPadrao ? (
-                  <p className="text-xs text-muted-foreground">
-                    Quando desativado, o lançamento começa em 0 e o campo fica obrigatório.
-                  </p>
-                ) : null}
-              </div>
+                      <div className="flex items-center justify-between rounded-lg border p-3">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium">Usar kg/balaio padrão</p>
+                          <p className="text-xs text-muted-foreground">
+                            Quando ativo, o lançamento começa com esse valor (você pode editar).
+                          </p>
+                        </div>
+                        <Switch
+                          checked={usarKgPorBalaioPadrao}
+                          onCheckedChange={setUsarKgPorBalaioPadrao}
+                          disabled={initialLoading}
+                        />
+                      </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="kgPorLitro">Kg por litro (kg/L)</Label>
-                <Input
-                  id="kgPorLitro"
-                  type="number"
-                  step="0.0001"
-                  min={0}
-                  value={kgPorLitro}
-                  onChange={(e) => setKgPorLitro(e.target.value)}
-                  placeholder={initialLoading ? "Carregando..." : "1"}
-                  disabled={initialLoading}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Usado para estimar litros a partir do peso (litros = kg / kg/L).
-                </p>
-              </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="kgPorLitro">Kg por litro (kg/L)</Label>
+                        <Input
+                          id="kgPorLitro"
+                          type="number"
+                          step="0.0001"
+                          min={0}
+                          value={kgPorLitro}
+                          onChange={(e) => setKgPorLitro(e.target.value)}
+                          placeholder={initialLoading ? "Carregando..." : "1"}
+                          disabled={initialLoading}
+                        />
+                      </div>
 
-              <div className="flex items-center justify-between rounded-lg border p-3">
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">Preço por balaio (padrão)</p>
-                  <p className="text-xs text-muted-foreground">Define o modo inicial do preço no lançamento.</p>
-                </div>
-                <Switch
-                  checked={precoPorBalaioPadrao}
-                  onCheckedChange={setPrecoPorBalaioPadrao}
-                  disabled={initialLoading}
-                />
-              </div>
+                      <div className="flex items-center justify-between rounded-lg border p-3">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium">Preço por balaio (padrão)</p>
+                          <p className="text-xs text-muted-foreground">Define o modo inicial do preço no lançamento.</p>
+                        </div>
+                        <Switch
+                          checked={precoPorBalaioPadrao}
+                          onCheckedChange={setPrecoPorBalaioPadrao}
+                          disabled={initialLoading}
+                        />
+                      </div>
 
-              <div className="flex items-center justify-between rounded-lg border p-3">
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">Mostrar propriedade e lavoura</p>
-                  <p className="text-xs text-muted-foreground">Exibe os campos no lançamento.</p>
-                </div>
-                <Switch
-                  checked={mostrarPropriedadeLavoura}
-                  onCheckedChange={setMostrarPropriedadeLavoura}
-                  disabled={initialLoading}
-                />
-              </div>
+                      <div className="flex items-center justify-between rounded-lg border p-3">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium">Lançamento somente por balaio</p>
+                          <p className="text-xs text-muted-foreground">
+                            Informa qtd. balaios e preço/balaio (peso é calculado pelo kg/balaio padrão).
+                          </p>
+                        </div>
+                        <Switch
+                          checked={lancamentoModo === "somente_balaio"}
+                          onCheckedChange={(checked) => {
+                            setLancamentoModo(checked ? "somente_balaio" : "padrao");
+                          }}
+                          disabled={initialLoading}
+                        />
+                      </div>
 
-              <div className="flex items-center justify-between rounded-lg border p-3">
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">Usar propriedade/lavoura padrão</p>
-                  <p className="text-xs text-muted-foreground">
-                    Se ativar, você escolhe o padrão para os próximos lançamentos.
-                  </p>
-                </div>
-                <Switch
-                  checked={usarPropriedadeLavouraPadrao}
-                  onCheckedChange={(next) => {
-                    setUsarPropriedadeLavouraPadrao(next);
-                    if (!next) {
-                      setPropriedadePadraoId("");
-                      setLavouraPadraoId("");
-                    }
-                  }}
-                  disabled={initialLoading}
-                />
-              </div>
+                      <div className="flex items-center justify-between rounded-lg border p-3">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium">Lançamento por peso médio do balaio</p>
+                          <p className="text-xs text-muted-foreground">
+                            Informa peso (kg), peso médio/balaio (kg) e preço/balaio (qtd. balaios é calculada).
+                          </p>
+                        </div>
+                        <Switch
+                          checked={lancamentoModo === "peso_medio_balaio"}
+                          onCheckedChange={(checked) => {
+                            setLancamentoModo(checked ? "peso_medio_balaio" : "padrao");
+                          }}
+                          disabled={initialLoading || lancamentoModo === "somente_balaio"}
+                        />
+                      </div>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
 
-              {usarPropriedadeLavouraPadrao ? (
-                <>
-                  <div className="space-y-2">
-                    <Label>Propriedade padrão</Label>
-                    <Select
-                      value={propriedadePadraoId}
-                      onValueChange={(v) => {
-                        setPropriedadePadraoId(v);
-                        setLavouraPadraoId("");
-                      }}
-                      disabled={initialLoading}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder={initialLoading ? "Carregando..." : "Selecione"} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {propriedades.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {(p.nome ?? "Sem nome").trim() || "Sem nome"}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      Se “Mostrar propriedade e lavoura” estiver desativado, o lançamento usa esse padrão.
-                    </p>
-                  </div>
+                <AccordionItem value="propriedades">
+                  <AccordionTrigger>Propriedade e lavoura</AccordionTrigger>
+                  <AccordionContent>
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between rounded-lg border p-3">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium">Mostrar propriedade e lavoura</p>
+                          <p className="text-xs text-muted-foreground">Exibe os campos no lançamento.</p>
+                        </div>
+                        <Switch
+                          checked={mostrarPropriedadeLavoura}
+                          onCheckedChange={setMostrarPropriedadeLavoura}
+                          disabled={initialLoading}
+                        />
+                      </div>
 
-                  <div className="space-y-2">
-                    <Label>Lavoura padrão</Label>
-                    <Select value={lavouraPadraoId} onValueChange={setLavouraPadraoId} disabled={initialLoading || !propriedadePadraoId}>
-                      <SelectTrigger>
-                        <SelectValue placeholder={!propriedadePadraoId ? "Selecione a propriedade" : "Selecione"} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {lavourasDaPropriedade.map((l) => (
-                          <SelectItem key={l.id} value={l.id}>
-                            {l.nome}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </>
-              ) : null}
+                      <div className="flex items-center justify-between rounded-lg border p-3">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium">Usar propriedade/lavoura padrão</p>
+                          <p className="text-xs text-muted-foreground">Define o padrão para os próximos lançamentos.</p>
+                        </div>
+                        <Switch
+                          checked={usarPropriedadeLavouraPadrao}
+                          onCheckedChange={(next) => {
+                            setUsarPropriedadeLavouraPadrao(next);
+                            if (!next) {
+                              setPropriedadePadraoId("");
+                              setLavouraPadraoId("");
+                            }
+                          }}
+                          disabled={initialLoading}
+                        />
+                      </div>
+
+                      {usarPropriedadeLavouraPadrao ? (
+                        <>
+                          <div className="space-y-2">
+                            <Label>Propriedade padrão</Label>
+                            <Select
+                              value={propriedadePadraoId}
+                              onValueChange={(v) => {
+                                setPropriedadePadraoId(v);
+                                setLavouraPadraoId("");
+                              }}
+                              disabled={initialLoading}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder={initialLoading ? "Carregando..." : "Selecione"} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {propriedades.map((p) => (
+                                  <SelectItem key={p.id} value={p.id}>
+                                    {(p.nome ?? "Sem nome").trim() || "Sem nome"}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label>Lavoura padrão</Label>
+                            <Select
+                              value={lavouraPadraoId}
+                              onValueChange={setLavouraPadraoId}
+                              disabled={initialLoading || !propriedadePadraoId}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder={!propriedadePadraoId ? "Selecione a propriedade" : "Selecione"} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {lavourasDaPropriedade.map((l) => (
+                                  <SelectItem key={l.id} value={l.id}>
+                                    {l.nome}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
 
               <div className="flex justify-end">
-                <Button type="submit" disabled={loading || initialLoading}>
+                <Button type="submit" disabled={loading || initialLoading} variant="secondary">
                   {loading ? "Salvando..." : "Salvar"}
                 </Button>
               </div>

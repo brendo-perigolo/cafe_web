@@ -92,10 +92,40 @@ export const useOfflineSync = () => {
   const savePendingPanhadorDeactivate = (empresaId: string, panhadorId: string) =>
     savePendingPanhadorOp({ action: "deactivate", empresa_id: empresaId, payload: { id: panhadorId } });
 
-  const syncPendingPanhadores = async () => {
+  const syncPendingPanhadores = async (): Promise<Record<string, string>> => {
     if (!user) return;
     const ops = getPendingPanhadorOps();
-    if (ops.length === 0) return;
+    if (ops.length === 0) return {};
+
+    const idRemap: Record<string, string> = {};
+
+    const normalize = (value: unknown) =>
+      String(value ?? "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .toLowerCase();
+
+    const getPayloadString = (payload: Record<string, unknown>, key: string) => {
+      const value = payload[key];
+      return typeof value === "string" ? value : null;
+    };
+
+    const buildMergeUpdate = (payload: Record<string, unknown>, existing: Record<string, unknown>) => {
+      const next: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(payload)) {
+        if (key === "id" || key === "created_at" || key === "updated_at") continue;
+        if (value == null) continue;
+        if (typeof value === "string" && !value.trim()) continue;
+
+        const existingValue = existing[key];
+        if (existingValue == null || (typeof existingValue === "string" && !existingValue.trim())) {
+          next[key] = value;
+        }
+      }
+      // mantém o registro ativo se estamos mesclando dados
+      if (existing.ativo === false) next.ativo = true;
+      return next;
+    };
 
     const stripUnknownBagFields = (payload: Record<string, unknown>) => {
       const next = { ...payload };
@@ -111,8 +141,73 @@ export const useOfflineSync = () => {
 
     const remaining: PendingPanhadorOp[] = [];
 
+    // Passo 1: tenta mesclar inserts com registros já existentes (evita duplicidade)
+    for (const op of ops) {
+      if (op.action !== "insert") continue;
+
+      const payload = op.payload;
+      const offlineId = getPayloadString(payload, "id");
+      const nome = normalize(getPayloadString(payload, "nome"));
+      const apelidoRaw = getPayloadString(payload, "apelido");
+      const apelido = apelidoRaw == null ? "" : normalize(apelidoRaw);
+      const bagRaw = getPayloadString(payload, "bag_numero");
+      const bag = bagRaw == null ? "" : normalize(bagRaw);
+
+      if (!offlineId || !nome) continue;
+
+      try {
+        let q = supabase
+          .from("panhadores")
+          .select("id, nome, apelido, bag_numero, cpf, telefone, ativo")
+          .eq("empresa_id", op.empresa_id)
+          .limit(25);
+
+        // Se tiver bag, usa como filtro principal (mais específico)
+        if (bag) q = q.eq("bag_numero", bagRaw as string);
+        // Nome ajuda a reduzir candidatos sem precisar baixar tudo
+        q = q.ilike("nome", (getPayloadString(payload, "nome") ?? "") as string);
+
+        const { data, error } = await q;
+        if (error) throw error;
+        const candidates = (data ?? []) as Array<Record<string, unknown>>;
+
+        const match = candidates.find((row) => {
+          const rowNome = normalize(row.nome);
+          const rowApelido = row.apelido == null ? "" : normalize(row.apelido);
+          const rowBag = row.bag_numero == null ? "" : normalize(row.bag_numero);
+          return rowNome === nome && rowApelido === apelido && rowBag === bag;
+        });
+
+        if (!match || typeof match.id !== "string") continue;
+
+        // Mescla dados no registro existente (sem sobrescrever campos já preenchidos)
+        let updatePayload = buildMergeUpdate(payload, match);
+        if (Object.keys(updatePayload).length === 0) {
+          idRemap[offlineId] = match.id;
+          continue;
+        }
+
+        let { error: updateError } = await supabase.from("panhadores").update(updatePayload).eq("id", match.id);
+        if (updateError && getErrorCode(updateError) === "42703") {
+          updatePayload = stripUnknownBagFields(updatePayload);
+          ({ error: updateError } = await supabase.from("panhadores").update(updatePayload).eq("id", match.id));
+        }
+        if (updateError) throw updateError;
+
+        idRemap[offlineId] = match.id;
+      } catch (error) {
+        console.error("Erro ao tentar mesclar panhador (dedupe):", error);
+      }
+    }
+
+    // Passo 2: processa fila normalmente (aplicando remap quando existir)
     for (const op of ops) {
       if (op.action === "insert") {
+        const offlineId = getPayloadString(op.payload, "id");
+        if (offlineId && idRemap[offlineId]) {
+          // Já mesclado com registro existente
+          continue;
+        }
         try {
           let payload = op.payload;
           let { error } = await supabase.from("panhadores").insert(payload);
@@ -151,10 +246,11 @@ export const useOfflineSync = () => {
       }
 
       if (op.action === "update") {
-        const id = typeof op.payload.id === "string" ? op.payload.id : null;
+        const idRaw = typeof op.payload.id === "string" ? op.payload.id : null;
+        const id = idRaw && idRemap[idRaw] ? idRemap[idRaw] : idRaw;
         if (!id) continue;
         try {
-          let payload = op.payload;
+          let payload = { ...op.payload, id };
           let { error } = await supabase.from("panhadores").update(payload).eq("id", id);
 
           if (error && getErrorCode(error) === "42703") {
@@ -172,7 +268,8 @@ export const useOfflineSync = () => {
       }
 
       if (op.action === "deactivate") {
-        const id = typeof op.payload.id === "string" ? op.payload.id : null;
+        const idRaw = typeof op.payload.id === "string" ? op.payload.id : null;
+        const id = idRaw && idRemap[idRaw] ? idRemap[idRaw] : idRaw;
         if (!id) continue;
         try {
           const { error } = await supabase.from("panhadores").update({ ativo: false }).eq("id", id);
@@ -185,6 +282,8 @@ export const useOfflineSync = () => {
     }
 
     setPendingPanhadorOps(remaining);
+
+    return idRemap;
   };
 
   const syncPendingData = async () => {
@@ -220,7 +319,19 @@ export const useOfflineSync = () => {
 
     try {
       // 1) Sincroniza panhadores primeiro (colheitas podem depender deles)
-      await syncPendingPanhadores();
+      const panhadorRemap = await syncPendingPanhadores();
+
+      // Se houve mesclagem, remapeia panhador_id em colheitas pendentes antes de enviar
+      if (Object.keys(panhadorRemap).length > 0) {
+        const pendingBefore = getPendingColheitas() as PendingColheita[];
+        const remapped = pendingBefore.map((c) => {
+          const current = (c as unknown as { panhador_id?: unknown }).panhador_id;
+          const key = typeof current === "string" ? current : "";
+          const nextId = key && panhadorRemap[key] ? panhadorRemap[key] : current;
+          return nextId === current ? c : ({ ...c, panhador_id: nextId } as PendingColheita);
+        });
+        setPendingColheitas(remapped);
+      }
 
       const pendingPanhadoresAfter = getPendingPanhadorOps();
       const panhadoresRemaining = pendingPanhadoresAfter.length;

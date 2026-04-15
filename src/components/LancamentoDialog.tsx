@@ -59,6 +59,8 @@ interface LavouraOption {
 
 const PADRAO_OPTION = "__padrao__";
 
+type LancamentoModo = "padrao" | "somente_balaio" | "peso_medio_balaio";
+
 const formatLocalDateIso = (d: Date) => {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -92,6 +94,7 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
   const [loading, setLoading] = useState(false);
   const [panhadorId, setPanhadorId] = useState("");
   const [pesoKg, setPesoKg] = useState("");
+  const [qtdBalaios, setQtdBalaios] = useState("");
   const [precoKg, setPrecoKg] = useState("");
   const [numeroBag, setNumeroBag] = useState("");
   const [bagConflictOpen, setBagConflictOpen] = useState(false);
@@ -106,6 +109,7 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
   const [precoPorBalaio, setPrecoPorBalaio] = useState(false);
   const [kgPorBalaioConfig, setKgPorBalaioConfig] = useState<number | null>(null);
   const [kgPorBalaioManual, setKgPorBalaioManual] = useState("");
+  const [lancamentoModo, setLancamentoModo] = useState<LancamentoModo>("padrao");
   const [mostrarPropriedadeLavoura, setMostrarPropriedadeLavoura] = useState(true);
   const [usarPropriedadeLavouraPadrao, setUsarPropriedadeLavouraPadrao] = useState(false);
   const [propriedadePadraoId, setPropriedadePadraoId] = useState<string | null>(null);
@@ -125,6 +129,7 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
         setKgPorBalaioConfig(null);
         setKgPorBalaioManual("");
         setPrecoPorBalaio(false);
+        setLancamentoModo("padrao");
         setMostrarPropriedadeLavoura(true);
         setUsarPropriedadeLavouraPadrao(false);
         setPropriedadePadraoId(null);
@@ -133,6 +138,8 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
       }
 
       const settings = getDeviceLancamentoSettings(selectedCompany.id);
+      const modo: LancamentoModo = (settings.lancamento_modo ?? "padrao") as LancamentoModo;
+      setLancamentoModo(modo);
       const kgDefaultEnabled = settings.usar_kg_por_balaio_padrao ?? true;
       const kgDefault =
         settings.kg_por_balaio_padrao != null && Number.isFinite(Number(settings.kg_por_balaio_padrao))
@@ -140,7 +147,7 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
           : null;
       setKgPorBalaioConfig(kgDefault);
       setKgPorBalaioManual(kgDefaultEnabled && kgDefault != null && kgDefault > 0 ? String(kgDefault) : "");
-      setPrecoPorBalaio(settings.preco_por_balaio_padrao ?? false);
+      setPrecoPorBalaio(modo === "padrao" ? (settings.preco_por_balaio_padrao ?? false) : true);
 
       setMostrarPropriedadeLavoura(settings.mostrar_propriedade_lavoura ?? true);
       setUsarPropriedadeLavouraPadrao(settings.usar_propriedade_lavoura_padrao ?? false);
@@ -155,6 +162,7 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
     if (!open) {
       setPanhadorId("");
       setPesoKg("");
+      setQtdBalaios("");
       setPrecoKg("");
       setNumeroBag("");
       setPropriedadeId(PADRAO_OPTION);
@@ -364,32 +372,60 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
     setLavouraId(padrao ?? (list[0]?.id ?? PADRAO_OPTION));
   };
 
-  const effectiveKgPorBalaio = (() => {
+  const precoPorBalaioEfetivo = lancamentoModo === "padrao" ? precoPorBalaio : true;
+
+  const effectiveKgPorBalaio = useMemo(() => {
+    if (lancamentoModo === "somente_balaio") {
+      const fromConfig = kgPorBalaioConfig;
+      return fromConfig != null && Number.isFinite(fromConfig) && fromConfig > 0 ? fromConfig : null;
+    }
+
     const parsed = Number(kgPorBalaioManual);
     if (!Number.isFinite(parsed) || parsed <= 0) return null;
     return parsed;
-  })();
+  }, [lancamentoModo, kgPorBalaioConfig, kgPorBalaioManual]);
 
-  const valorTotalPreview = useMemo(() => {
-    if (!pesoKg || !precoKg) return null;
-    const preco = Number(precoKg);
-    const peso = Number(pesoKg);
-    if (!Number.isFinite(preco) || !Number.isFinite(peso)) return null;
-
-    if (precoPorBalaio) {
+  const effectivePesoKgNumber = useMemo(() => {
+    if (lancamentoModo === "somente_balaio") {
+      const balaios = Number(qtdBalaios);
+      if (!Number.isFinite(balaios) || balaios <= 0) return null;
       if (effectiveKgPorBalaio == null || effectiveKgPorBalaio <= 0) return null;
-      return (peso / effectiveKgPorBalaio) * preco;
+      return balaios * effectiveKgPorBalaio;
     }
 
-    return peso * preco;
-  }, [pesoKg, precoKg, precoPorBalaio, effectiveKgPorBalaio]);
+    const peso = Number(pesoKg);
+    if (!Number.isFinite(peso) || peso <= 0) return null;
+    return peso;
+  }, [lancamentoModo, qtdBalaios, pesoKg, effectiveKgPorBalaio]);
 
   const balaiosPreview = useMemo(() => {
+    if (lancamentoModo === "somente_balaio") {
+      const balaios = Number(qtdBalaios);
+      if (!Number.isFinite(balaios) || balaios <= 0) return null;
+      return balaios;
+    }
+
     const peso = Number(pesoKg);
     if (!Number.isFinite(peso) || peso <= 0) return null;
     if (effectiveKgPorBalaio == null || effectiveKgPorBalaio <= 0) return null;
     return peso / effectiveKgPorBalaio;
-  }, [pesoKg, effectiveKgPorBalaio]);
+  }, [lancamentoModo, qtdBalaios, pesoKg, effectiveKgPorBalaio]);
+
+  const valorTotalPreview = useMemo(() => {
+    if (!precoKg) return null;
+    const preco = Number(precoKg);
+    const peso = effectivePesoKgNumber;
+    if (!Number.isFinite(preco) || peso == null || !Number.isFinite(peso)) return null;
+
+    if (precoPorBalaioEfetivo) {
+      if (effectiveKgPorBalaio == null || effectiveKgPorBalaio <= 0) return null;
+      const balaios = balaiosPreview;
+      if (balaios == null) return null;
+      return balaios * preco;
+    }
+
+    return peso * preco;
+  }, [precoKg, effectivePesoKgNumber, precoPorBalaioEfetivo, effectiveKgPorBalaio, balaiosPreview]);
 
   const loadPanhadores = async () => {
     if (!user || !selectedCompany) {
@@ -782,6 +818,19 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
     try {
       const precoInput = precoKg.trim() ? Number(precoKg) : undefined;
 
+      const pesoNumber = effectivePesoKgNumber;
+      if (pesoNumber == null || !Number.isFinite(pesoNumber) || pesoNumber <= 0) {
+        toast({
+          title: "Peso obrigatório",
+          description:
+            lancamentoModo === "somente_balaio"
+              ? "Informe a quantidade de balaios."
+              : "Informe o peso (kg) maior que zero.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       if (effectiveKgPorBalaio == null || !Number.isFinite(effectiveKgPorBalaio) || effectiveKgPorBalaio <= 0) {
         toast({
           title: "Peso médio obrigatório",
@@ -795,7 +844,6 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
         // effectiveKgPorBalaio já validado acima
       }
 
-      const pesoNumber = Number(pesoKg);
       const round2 = (value: number) => Number(value.toFixed(2));
 
       let precoPorKgFinal: number | undefined;
@@ -803,11 +851,12 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
       let valorTotal: number | null = null;
 
       if (precoInput != null) {
-        if (precoPorBalaio) {
+        if (precoPorBalaioEfetivo) {
           const kgBalaio = effectiveKgPorBalaio as number;
           precoPorBalaioFinal = round2(precoInput);
           precoPorKgFinal = round2(precoInput / kgBalaio);
-          valorTotal = round2((pesoNumber / kgBalaio) * precoPorBalaioFinal);
+          const balaios = balaiosPreview;
+          valorTotal = balaios != null ? round2(balaios * precoPorBalaioFinal) : round2((pesoNumber / kgBalaio) * precoPorBalaioFinal);
         } else {
           precoPorKgFinal = round2(precoInput);
           if (effectiveKgPorBalaio != null && Number.isFinite(effectiveKgPorBalaio) && effectiveKgPorBalaio > 0) {
@@ -931,7 +980,10 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
 
         try {
           const precoInput = precoKg.trim() ? Number(precoKg) : undefined;
-          const pesoNumber = Number(pesoKg);
+          const pesoNumber = effectivePesoKgNumber;
+          if (pesoNumber == null || !Number.isFinite(pesoNumber) || pesoNumber <= 0) {
+            throw new Error("Peso inválido");
+          }
           const round2 = (value: number) => Number(value.toFixed(2));
 
           let precoPorKgFinal: number | undefined;
@@ -939,11 +991,12 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
           let valorTotal: number | null = null;
 
           if (precoInput != null) {
-            if (precoPorBalaio) {
+            if (precoPorBalaioEfetivo) {
               const kgBalaio = effectiveKgPorBalaio as number;
               precoPorBalaioFinal = round2(precoInput);
               precoPorKgFinal = round2(precoInput / kgBalaio);
-              valorTotal = round2((pesoNumber / kgBalaio) * precoPorBalaioFinal);
+              const balaios = balaiosPreview;
+              valorTotal = balaios != null ? round2(balaios * precoPorBalaioFinal) : round2((pesoNumber / kgBalaio) * precoPorBalaioFinal);
             } else {
               precoPorKgFinal = round2(precoInput);
               if (effectiveKgPorBalaio != null && Number.isFinite(effectiveKgPorBalaio) && effectiveKgPorBalaio > 0) {
@@ -1214,26 +1267,26 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
                         type="button"
                         variant="outline"
                         role="combobox"
-                        className="w-full justify-start gap-2"
+                        className="w-full justify-start bg-muted"
                       >
-                        <Search className="h-4 w-4 text-muted-foreground" />
                         <span className={cn("truncate", !panhadorId && "text-muted-foreground")}>
                           {selectedPanhador
-                            ? `${selectedPanhador.nome}${selectedPanhador.apelido ? ` (${selectedPanhador.apelido})` : ""}`
-                            : "Buscar apanhador pelo nome..."}
+                            ? `${selectedPanhador.nome}${selectedPanhador.apelido ? ` (${selectedPanhador.apelido})` : ""}${(selectedPanhador.bag_numero ?? "").trim() ? ` - Bag ${(selectedPanhador.bag_numero ?? "").trim()}` : ""}`
+                            : "Selecione um apanhador..."}
                         </span>
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
                       <Command>
-                        <CommandInput placeholder="Buscar apanhador..." />
+                        <CommandInput placeholder="Buscar por nome, apelido ou bag..." />
                         <CommandList>
                           <CommandEmpty>Nenhum apanhador encontrado.</CommandEmpty>
                           <CommandGroup>
                             {panhadores.map((p) => (
                               <CommandItem
                                 key={p.id}
-                                value={`${p.nome} ${p.apelido ?? ""}`}
+                                value={`${p.nome} ${p.apelido ?? ""} ${p.bag_numero ?? ""}`}
+                                className="data-[selected=true]:bg-primary data-[selected=true]:text-primary-foreground"
                                 onSelect={() => {
                                   setPanhadorId(p.id);
                                   setPanhadorOpen(false);
@@ -1241,6 +1294,7 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
                               >
                                 {p.nome}
                                 {p.apelido ? ` (${p.apelido})` : ""}
+                                {(p.bag_numero ?? "").trim() ? ` - Bag ${(p.bag_numero ?? "").trim()}` : ""}
                               </CommandItem>
                             ))}
                           </CommandGroup>
@@ -1253,7 +1307,12 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
                     <Label>
-                      Bag <span className="text-destructive">*</span>
+                      Bag
+                      {lancamentoModo === "somente_balaio" ? (
+                        <span className="ml-2 text-xs text-muted-foreground">(opcional)</span>
+                      ) : (
+                        <span className="text-destructive">*</span>
+                      )}
                     </Label>
                     <Input
                       value={numeroBag}
@@ -1280,23 +1339,42 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
                   </div>
 
                   <div className="space-y-2">
-                    <Label>
-                      Peso (kg) <span className="text-destructive">*</span>
-                    </Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={pesoKg}
-                      onChange={(e) => setPesoKg(e.target.value)}
-                      placeholder="0,00"
-                      required
-                    />
+                    {lancamentoModo === "somente_balaio" ? (
+                      <>
+                        <Label>
+                          Qtd. balaios <span className="text-destructive">*</span>
+                        </Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={qtdBalaios}
+                          onChange={(e) => setQtdBalaios(e.target.value)}
+                          placeholder="0,00"
+                          required
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <Label>
+                          {lancamentoModo === "peso_medio_balaio" ? "Qtd. peso (kg)" : "Peso (kg)"}{" "}
+                          <span className="text-destructive">*</span>
+                        </Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={pesoKg}
+                          onChange={(e) => setPesoKg(e.target.value)}
+                          placeholder="0,00"
+                          required
+                        />
+                      </>
+                    )}
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
-                    <Label>{precoPorBalaio ? "R$/Balaio" : "R$/Kg"}</Label>
+                    <Label>{precoPorBalaioEfetivo ? "R$/Balaio" : "R$/Kg"}</Label>
                     <Input
                       type="number"
                       step="0.01"
@@ -1306,20 +1384,42 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Kg médio/balaio</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={kgPorBalaioManual}
-                      onChange={(e) => setKgPorBalaioManual(e.target.value)}
-                      placeholder="0,00"
-                      required
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Padrão em Configurações: {kgPorBalaioConfig != null ? `${kgPorBalaioConfig} kg` : "não configurado"}
-                    </p>
+                    {lancamentoModo === "somente_balaio" ? (
+                      <>
+                        <Label>Kg/balaio (padrão)</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={kgPorBalaioConfig != null ? String(kgPorBalaioConfig) : ""}
+                          placeholder={kgPorBalaioConfig == null ? "Não configurado" : "0,00"}
+                          disabled
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <Label>{lancamentoModo === "peso_medio_balaio" ? "Peso médio balaio (kg)" : "Kg médio/balaio"}</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={kgPorBalaioManual}
+                          onChange={(e) => setKgPorBalaioManual(e.target.value)}
+                          placeholder="0,00"
+                          required
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Padrão em Configurações: {kgPorBalaioConfig != null ? `${kgPorBalaioConfig} kg` : "não configurado"}
+                        </p>
+                      </>
+                    )}
                   </div>
                 </div>
+
+                {lancamentoModo === "peso_medio_balaio" ? (
+                  <div className="space-y-2">
+                    <Label>Qtd. balaios (calculado)</Label>
+                    <Input value={balaiosPreview != null ? balaiosPreview.toFixed(2) : ""} placeholder="—" disabled />
+                  </div>
+                ) : null}
 
                 {propriedadesSupported && mostrarPropriedadeLavoura && (
                   <div className="grid grid-cols-2 gap-3">
@@ -1372,24 +1472,26 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-3">
-                  <Button
-                    type="button"
-                    variant={precoPorBalaio ? "outline" : "secondary"}
-                    className="w-full"
-                    onClick={() => setPrecoPorBalaio(false)}
-                  >
-                    Por Kg
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={precoPorBalaio ? "secondary" : "outline"}
-                    className="w-full"
-                    onClick={() => setPrecoPorBalaio(true)}
-                  >
-                    Por Balaio
-                  </Button>
-                </div>
+                {lancamentoModo === "padrao" ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <Button
+                      type="button"
+                      variant={precoPorBalaio ? "outline" : "secondary"}
+                      className="w-full"
+                      onClick={() => setPrecoPorBalaio(false)}
+                    >
+                      Por Kg
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={precoPorBalaio ? "secondary" : "outline"}
+                      className="w-full"
+                      onClick={() => setPrecoPorBalaio(true)}
+                    >
+                      Por Balaio
+                    </Button>
+                  </div>
+                ) : null}
 
                 <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm">
                   <div className="flex items-center justify-between gap-3">

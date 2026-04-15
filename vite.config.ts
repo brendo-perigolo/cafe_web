@@ -36,6 +36,14 @@ export default defineConfig(({ mode }) => {
       devOptions: {
         enabled: true,
       },
+      workbox: {
+        // SPA offline fallback
+        navigateFallback: "/index.html",
+        // Some bundles can exceed Workbox default (2 MiB) and would not be cached,
+        // causing a white screen when opening offline.
+        maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
+        cleanupOutdatedCaches: true,
+      },
       includeAssets: ["logo_minha_cafe.png"],
       manifest: {
         name: "Minha Colheita Café",

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { X } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,17 @@ function getIsIos() {
 export function PwaInstallBanner() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installed, setInstalled] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+
+  const dismissKey = "pwa_install_banner_dismissed_v1";
+
+  useEffect(() => {
+    try {
+      setDismissed(window.localStorage.getItem(dismissKey) === "1");
+    } catch {
+      setDismissed(false);
+    }
+  }, []);
 
   useEffect(() => {
     setInstalled(getIsInstalled());
@@ -49,7 +61,7 @@ export function PwaInstallBanner() {
 
   const isIos = useMemo(() => getIsIos(), []);
 
-  const shouldShow = !installed && (Boolean(deferredPrompt) || isIos);
+  const shouldShow = !dismissed && !installed && (Boolean(deferredPrompt) || isIos);
   if (!shouldShow) return null;
 
   const handleInstall = async () => {
@@ -63,9 +75,27 @@ export function PwaInstallBanner() {
     }
   };
 
+  const handleDismiss = () => {
+    setDismissed(true);
+    try {
+      window.localStorage.setItem(dismissKey, "1");
+    } catch {
+      // ignore
+    }
+  };
+
   return (
     <div className="fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-xl">
-      <Alert>
+      <Alert className="relative">
+        <button
+          type="button"
+          onClick={handleDismiss}
+          className="absolute right-2 top-2 rounded-md p-1 text-foreground/50 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          aria-label="Fechar"
+          title="Fechar"
+        >
+          <X className="h-4 w-4" />
+        </button>
         <AlertTitle>Instalar o app</AlertTitle>
         <AlertDescription>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
