@@ -11,6 +11,7 @@ import {
   SlidersHorizontal,
   FileText,
   CreditCard,
+  Plus,
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -40,7 +41,7 @@ import { toast } from "@/hooks/use-toast";
 import { useOfflineSync } from "@/hooks/useOfflineSync";
 import { cn } from "@/lib/utils";
 import { cacheKey, getPendingColheitas, readJson, writeJson } from "@/lib/offline";
-import { getDeviceToken } from "@/lib/device";
+import { getDeviceToken, safeRandomUUID } from "@/lib/device";
 import { isUuid, toUuidOrNull } from "@/lib/uuid";
 
 interface Lancamento {
@@ -139,7 +140,75 @@ export default function Movimentacoes() {
 
   const [filtersOpen, setFiltersOpen] = useState(false);
 
+  const [createPanhadorOpen, setCreatePanhadorOpen] = useState(false);
+  const [createPanhadorNome, setCreatePanhadorNome] = useState("");
+  const [createPanhadorApelido, setCreatePanhadorApelido] = useState("");
+  const [createPanhadorSaving, setCreatePanhadorSaving] = useState(false);
+  const [createPanhadorContext, setCreatePanhadorContext] = useState<"filter" | "edit">("filter");
+
+  const openCreatePanhador = (context: "filter" | "edit") => {
+    setCreatePanhadorContext(context);
+    setCreatePanhadorOpen(true);
+  };
+
   const isOffline = !navigator.onLine;
+
+  const handleCreatePanhador = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!user || !selectedCompany) {
+      toast({ title: "Selecione uma empresa", variant: "destructive" });
+      return;
+    }
+
+    const nome = createPanhadorNome.trim();
+    const apelido = createPanhadorApelido.trim();
+
+    if (nome.length < 3) {
+      toast({ title: "Nome inválido", description: "Informe pelo menos 3 caracteres.", variant: "destructive" });
+      return;
+    }
+
+    if (!navigator.onLine) {
+      toast({ title: "Sem internet", description: "Conecte-se para cadastrar um novo panhador.", variant: "destructive" });
+      return;
+    }
+
+    setCreatePanhadorSaving(true);
+    try {
+      const id = safeRandomUUID();
+      const payload = {
+        id,
+        nome,
+        apelido: apelido ? apelido : null,
+        user_id: user.id,
+        empresa_id: selectedCompany.id,
+      };
+
+      const { error } = await supabase.from("panhadores").insert(payload);
+      if (error) throw error;
+
+      const next = [{ id, nome }, ...panhadores.filter((p) => p.id !== id)];
+      setPanhadores(next);
+      writeJson(cacheKey("panhadores_list", selectedCompany.id), { panhadores: next });
+
+      if (createPanhadorContext === "filter") {
+        setPanhadorFilterId(id);
+      } else {
+        setEditForm((prev) => ({ ...prev, panhadorId: id }));
+      }
+
+      toast({ title: "Panhador cadastrado" });
+      setCreatePanhadorNome("");
+      setCreatePanhadorApelido("");
+      setCreatePanhadorOpen(false);
+    } catch (err) {
+      console.error("Erro ao cadastrar panhador:", err);
+      toast({ title: "Erro", description: "Não foi possível cadastrar o panhador.", variant: "destructive" });
+    } finally {
+      setCreatePanhadorSaving(false);
+    }
+  };
 
   const mergePendingLocal = (items: Lancamento[]) => {
     if (!selectedCompany?.id) return items;
@@ -705,6 +774,82 @@ export default function Movimentacoes() {
     setSelectedIds((prev) => ({ ...prev, [id]: checked }));
   };
 
+  const escapeHtml = (value: string) =>
+    value
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll("\"", "&quot;")
+      .replaceAll("'", "&#039;");
+
+  const openPrintTicket = (item: Lancamento) => {
+    const title = "Comprovante de Colheita";
+    const companyName = selectedCompany?.nome ?? "-";
+    const emittedAt = new Date().toLocaleString("pt-BR");
+    const dataLabel = dateFormatter.format(new Date(item.data_colheita));
+
+    const balaios = getBalaiosForLancamento(item);
+    const offline = item.codigo.startsWith("OFF-") || !navigator.onLine;
+
+    const html = `
+      <!doctype html>
+      <html lang="pt-BR">
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <title>${escapeHtml(title)}</title>
+          <style>
+            @page { size: 58mm auto; margin: 0; }
+            body { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; width: 58mm; margin: 0; padding: 4mm; color: #111827; }
+            h1 { margin: 0; font-size: 14px; }
+            .top { border-bottom: 1px dashed #9ca3af; padding-bottom: 8px; margin-bottom: 8px; }
+            .meta { font-size: 11px; color: #111827; display: grid; gap: 2px; margin-top: 6px; }
+            .kpi { border-top: 1px dashed #9ca3af; padding-top: 8px; margin-top: 8px; font-size: 11px; }
+            .kpi .row { display: flex; justify-content: space-between; gap: 8px; }
+            .kpi .label { opacity: 0.9; }
+            .kpi .value { font-weight: 700; white-space: nowrap; }
+            .footer { margin-top: 12px; font-size: 11px; }
+          </style>
+        </head>
+        <body>
+          <div class="top">
+            <h1>${escapeHtml(title)}</h1>
+            <div class="meta">
+              <div><strong>Empresa:</strong> ${escapeHtml(companyName)}</div>
+              <div><strong>Panhador:</strong> ${escapeHtml(item.panhador)}</div>
+              <div><strong>Data:</strong> ${escapeHtml(dataLabel)}</div>
+              <div><strong>Gerado em:</strong> ${escapeHtml(emittedAt)}</div>
+              <div><strong>Código:</strong> ${escapeHtml(item.codigo)}</div>
+              ${item.numero_bag ? `<div><strong>Bag:</strong> ${escapeHtml(item.numero_bag)}</div>` : ""}
+              ${offline ? `<div><strong>Status:</strong> OFFLINE (pendente de sincronização)</div>` : ""}
+            </div>
+          </div>
+
+          <div class="kpi">
+            <div class="row"><div class="label">Peso</div><div class="value">${escapeHtml(item.peso_kg.toFixed(2))} kg</div></div>
+            ${balaios != null ? `<div class="row"><div class="label">Balaios</div><div class="value">${escapeHtml(balaios.toFixed(2))}</div></div>` : ""}
+            ${item.preco_por_kg != null ? `<div class="row"><div class="label">Preço/kg</div><div class="value">${escapeHtml(currencyFormatter.format(item.preco_por_kg))}</div></div>` : ""}
+            ${item.valor_total != null ? `<div class="row"><div class="label">Valor</div><div class="value">${escapeHtml(currencyFormatter.format(item.valor_total))}</div></div>` : ""}
+          </div>
+
+          <div class="footer">Assinatura: ________________________________</div>
+        </body>
+      </html>
+    `;
+
+    const w = window.open("", "_blank");
+    if (!w) {
+      toast({ title: "Popup bloqueado", description: "Permita popups para imprimir.", variant: "destructive" });
+      return;
+    }
+
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => w.print(), 250);
+  };
+
   const buildPrintableHtmlForItems = (
     mode: "relatorio" | "comprovante",
     lote: string | undefined,
@@ -768,13 +913,13 @@ export default function Movimentacoes() {
             const balaios = getBalaiosForLancamento(it);
             const valorCell =
               it.valor_total != null
-                ? currencyFormatter.format(it.valor_total)
+                ? escapeHtml(currencyFormatter.format(it.valor_total))
                 : '<span class="pending">Pendente</span>';
             return `
               <tr>
-                <td>#${it.codigo}</td>
-                <td>${dateFormatter.format(new Date(it.data_colheita))}</td>
-                <td>${it.numero_bag ?? "-"}</td>
+                <td>#${escapeHtml(it.codigo)}</td>
+                <td>${escapeHtml(dateFormatter.format(new Date(it.data_colheita)))}</td>
+                <td>${escapeHtml(it.numero_bag ?? "-")}</td>
                 <td class="num">${it.peso_kg.toFixed(2)}</td>
                 <td class="num">${balaios != null ? balaios.toFixed(2) : "-"}</td>
                 <td class="num">${valorCell}</td>
@@ -786,8 +931,8 @@ export default function Movimentacoes() {
         return `
           <tr class="group-row">
             <td colspan="6">
-              <div class="group-title">${group.panhador}</div>
-              <div class="group-sub">${totalKg.toFixed(2)} kg · ${totalBalaios.toFixed(2)} balaios · ${currencyFormatter.format(totalValor)}</div>
+              <div class="group-title">${escapeHtml(group.panhador)}</div>
+              <div class="group-sub">${escapeHtml(`${totalKg.toFixed(2)} kg · ${totalBalaios.toFixed(2)} balaios · ${currencyFormatter.format(totalValor)}`)}</div>
             </td>
           </tr>
           ${rows}
@@ -796,12 +941,12 @@ export default function Movimentacoes() {
       .join("");
 
     const metaRows = [
-      `<div><strong>Empresa:</strong> ${companyName}</div>`,
-      `<div><strong>Período:</strong> ${periodoLabel}</div>`,
-      `<div><strong>Panhador:</strong> ${panhadorLabel}</div>`,
-      `<div><strong>Gerado em:</strong> ${emittedAt}</div>`,
-      lote ? `<div><strong>Lote:</strong> ${lote}</div>` : "",
-      pagoEm ? `<div><strong>Pagamento em:</strong> ${pagoEm}</div>` : "",
+      `<div><strong>Empresa:</strong> ${escapeHtml(companyName)}</div>`,
+      `<div><strong>Período:</strong> ${escapeHtml(periodoLabel)}</div>`,
+      `<div><strong>Panhador:</strong> ${escapeHtml(panhadorLabel)}</div>`,
+      `<div><strong>Gerado em:</strong> ${escapeHtml(emittedAt)}</div>`,
+      lote ? `<div><strong>Lote:</strong> ${escapeHtml(lote)}</div>` : "",
+      pagoEm ? `<div><strong>Pagamento em:</strong> ${escapeHtml(pagoEm)}</div>` : "",
     ]
       .filter(Boolean)
       .join("");
@@ -812,7 +957,7 @@ export default function Movimentacoes() {
         <head>
           <meta charset="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
-          <title>${title}</title>
+          <title>${escapeHtml(title)}</title>
           <style>
             body { font-family: Arial, Helvetica, sans-serif; margin: 24px; color: #0f172a; }
             h1 { margin: 0; font-size: 20px; }
@@ -837,13 +982,13 @@ export default function Movimentacoes() {
         </head>
         <body>
           <div class="top">
-            <h1>${title}</h1>
+            <h1>${escapeHtml(title)}</h1>
             <div class="meta">${metaRows}</div>
             <div class="kpis">
               <div class="kpi"><div class="label">Itens</div><div class="value">${items.length}</div></div>
               <div class="kpi"><div class="label">Total kg</div><div class="value">${resumo.totalKg.toFixed(2)} kg</div></div>
               <div class="kpi"><div class="label">Total balaios</div><div class="value">${resumo.totalBalaios.toFixed(2)}</div></div>
-              <div class="kpi"><div class="label">${mode === "comprovante" ? "Valor pago" : "Valor"}</div><div class="value">${currencyFormatter.format(mode === "comprovante" ? resumo.valorPago : resumo.totalValor)}</div></div>
+              <div class="kpi"><div class="label">${mode === "comprovante" ? "Valor pago" : "Valor"}</div><div class="value">${escapeHtml(currencyFormatter.format(mode === "comprovante" ? resumo.valorPago : resumo.totalValor))}</div></div>
             </div>
             ${resumo.pendentes > 0 ? `<div style="margin-top:8px; font-size:12px; color:#b45309;"><strong>Atenção:</strong> ${resumo.pendentes} pendente(s) sem valor.</div>` : ""}
           </div>
@@ -1605,7 +1750,7 @@ export default function Movimentacoes() {
           if (!open) setDetailsTarget(null);
         }}
       >
-        <DialogContent className="max-w-lg">
+        <DialogContent className="top-[6%] w-[95vw] max-w-lg max-h-[90vh] translate-y-0 overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Detalhes da movimentação</DialogTitle>
             <DialogDescription>Informações completas do registro</DialogDescription>
@@ -1613,7 +1758,7 @@ export default function Movimentacoes() {
 
           {detailsTarget ? (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label>Ticket</Label>
                   <div className="text-sm font-mono">{detailsTarget.codigo}</div>
@@ -1658,7 +1803,7 @@ export default function Movimentacoes() {
               </div>
 
               {propriedadesSupported ? (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="space-y-1">
                     <Label>Propriedade</Label>
                     <div className="text-sm">{detailsTarget.propriedade || "padrao"}</div>
@@ -1670,7 +1815,7 @@ export default function Movimentacoes() {
                 </div>
               ) : null}
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label>Encarregado</Label>
                   <div className="text-sm">{detailsTarget.encarregado}</div>
@@ -1727,30 +1872,31 @@ export default function Movimentacoes() {
                 </div>
               ) : null}
 
-              <div className="flex justify-end gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => {
-                    openPrint("relatorio", undefined, undefined, [detailsTarget]);
-                  }}
+                  className="w-full sm:w-auto"
+                  onClick={() => openPrintTicket(detailsTarget)}
                 >
-                  <FileText className="h-4 w-4" />
+                  <FileText className="mr-2 h-4 w-4" />
                   Reimprimir
                 </Button>
                 <Button
                   type="button"
+                  className="w-full sm:w-auto"
                   onClick={() => {
                     setDetailsOpen(false);
                     handleOpenEdit(detailsTarget);
                   }}
                   disabled={detailsTarget.codigo.startsWith("OFF-")}
                 >
-                  <Pencil className="h-4 w-4" />
+                  <Pencil className="mr-2 h-4 w-4" />
                   Editar
                 </Button>
                 {detailsTarget.codigo.startsWith("OFF-") ? (
                   <Button
+                    className="w-full sm:w-auto"
                     onClick={async () => {
                       if (!navigator.onLine) {
                         toast({
@@ -1800,7 +1946,7 @@ export default function Movimentacoes() {
                     {syncing ? "Sincronizando..." : "Sincronizar"}
                   </Button>
                 ) : null}
-                <Button variant="outline" onClick={() => setDetailsOpen(false)}>
+                <Button variant="outline" className="w-full sm:w-auto" onClick={() => setDetailsOpen(false)}>
                   Fechar
                 </Button>
               </div>
@@ -1851,64 +1997,78 @@ export default function Movimentacoes() {
 
             <div className="space-y-2">
               <Label>Panhador</Label>
-              <Popover open={panhadorFilterOpen} onOpenChange={setPanhadorFilterOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    role="combobox"
-                    aria-expanded={panhadorFilterOpen}
-                    className="w-full justify-between"
-                  >
-                    {panhadorFilterId === "todos"
-                      ? "Todos"
-                      : panhadores.find((p) => p.id === panhadorFilterId)?.nome ?? "Filtrar por panhador"}
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                  <Command>
-                    <CommandInput placeholder="Digite o nome..." />
-                    <CommandList>
-                      <CommandEmpty>Nenhum panhador encontrado.</CommandEmpty>
-                      <CommandGroup>
-                        <CommandItem
-                          value="Todos"
-                          onSelect={() => {
-                            setPanhadorFilterId("todos");
-                            setPanhadorFilterOpen(false);
-                          }}
-                        >
-                          <Check
-                            className={cn(
-                              "mr-2 h-4 w-4",
-                              panhadorFilterId === "todos" ? "opacity-100" : "opacity-0",
-                            )}
-                          />
-                          Todos
-                        </CommandItem>
-                        {panhadores.map((panhador) => (
+              <div className="flex gap-2">
+                <Popover open={panhadorFilterOpen} onOpenChange={setPanhadorFilterOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={panhadorFilterOpen}
+                      className="flex-1 justify-between bg-white hover:bg-white"
+                    >
+                      {panhadorFilterId === "todos"
+                        ? "Todos"
+                        : panhadores.find((p) => p.id === panhadorFilterId)?.nome ?? "Filtrar por panhador"}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] bg-white p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Digite o nome..." />
+                      <CommandList>
+                        <CommandEmpty>Nenhum panhador encontrado.</CommandEmpty>
+                        <CommandGroup>
                           <CommandItem
-                            key={panhador.id}
-                            value={panhador.nome}
+                            value="Todos"
                             onSelect={() => {
-                              setPanhadorFilterId(panhador.id);
+                              setPanhadorFilterId("todos");
                               setPanhadorFilterOpen(false);
                             }}
                           >
                             <Check
                               className={cn(
                                 "mr-2 h-4 w-4",
-                                panhadorFilterId === panhador.id ? "opacity-100" : "opacity-0",
+                                panhadorFilterId === "todos" ? "opacity-100" : "opacity-0",
                               )}
                             />
-                            {panhador.nome}
+                            Todos
                           </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
+                          {panhadores.map((panhador) => (
+                            <CommandItem
+                              key={panhador.id}
+                              value={panhador.nome}
+                              onSelect={() => {
+                                setPanhadorFilterId(panhador.id);
+                                setPanhadorFilterOpen(false);
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  panhadorFilterId === panhador.id ? "opacity-100" : "opacity-0",
+                                )}
+                              />
+                              {panhador.nome}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0 bg-white hover:bg-white"
+                  onClick={() => openCreatePanhador("filter")}
+                  aria-label="Adicionar panhador"
+                  title="Adicionar panhador"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -1956,26 +2116,40 @@ export default function Movimentacoes() {
             <form onSubmit={handleUpdateLancamento} className="space-y-4">
               <div className="space-y-2">
                 <Label>Panhador</Label>
-                <Select
-                  value={editForm.panhadorId}
-                  onValueChange={(value) => setEditForm((prev) => ({ ...prev, panhadorId: value }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione o panhador" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {!panhadores.some((p) => p.id === editForm.panhadorId) && editForm.panhadorId && (
-                      <SelectItem value={editForm.panhadorId}>
-                        {editTarget.panhador} (inativo)
-                      </SelectItem>
-                    )}
-                    {panhadores.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex gap-2">
+                  <Select
+                    value={editForm.panhadorId}
+                    onValueChange={(value) => setEditForm((prev) => ({ ...prev, panhadorId: value }))}
+                  >
+                    <SelectTrigger className="flex-1 bg-white">
+                      <SelectValue placeholder="Selecione o panhador" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {!panhadores.some((p) => p.id === editForm.panhadorId) && editForm.panhadorId && (
+                        <SelectItem value={editForm.panhadorId}>
+                          {editTarget.panhador} (inativo)
+                        </SelectItem>
+                      )}
+                      {panhadores.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="shrink-0 bg-white hover:bg-white"
+                    onClick={() => openCreatePanhador("edit")}
+                    aria-label="Adicionar panhador"
+                    title="Adicionar panhador"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
 
               {propriedadesSupported && (
@@ -2087,6 +2261,59 @@ export default function Movimentacoes() {
               </div>
             </form>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={createPanhadorOpen}
+        onOpenChange={(open) => {
+          setCreatePanhadorOpen(open);
+          if (!open) {
+            setCreatePanhadorNome("");
+            setCreatePanhadorApelido("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Novo panhador</DialogTitle>
+            <DialogDescription>Cadastre rápido para já selecionar no lançamento.</DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleCreatePanhador} className="space-y-4">
+            <div className="space-y-2">
+              <Label>Nome</Label>
+              <Input
+                value={createPanhadorNome}
+                onChange={(e) => setCreatePanhadorNome(e.target.value)}
+                placeholder="Nome do panhador"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Apelido (opcional)</Label>
+              <Input
+                value={createPanhadorApelido}
+                onChange={(e) => setCreatePanhadorApelido(e.target.value)}
+                placeholder="Opcional"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setCreatePanhadorOpen(false)}
+                disabled={createPanhadorSaving}
+              >
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={createPanhadorSaving}>
+                {createPanhadorSaving ? "Salvando..." : "Salvar"}
+              </Button>
+            </div>
+          </form>
         </DialogContent>
       </Dialog>
 
