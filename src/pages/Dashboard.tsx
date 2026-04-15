@@ -508,7 +508,7 @@ export default function Dashboard() {
               <CardHeader className="flex flex-col gap-4 pb-0">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex flex-col gap-1">
-                    <div className="grid grid-cols-2 items-center gap-2 sm:flex sm:items-center sm:gap-2">
+                    <div className="grid grid-cols-3 items-center gap-2 sm:flex sm:items-center sm:gap-2">
                       <span className="hidden w-fit items-center justify-center rounded-full bg-[hsl(204_70%_94%)] px-4 py-1 text-xs font-semibold text-[hsl(204_65%_32%)] sm:inline-flex">
                         Painel rápido
                       </span>
@@ -528,9 +528,9 @@ export default function Dashboard() {
                         {cacheReady === null ? "Checando cache" : cacheReady ? "Cache OK" : "Cache pendente"}
                       </div>
 
-                      <span className="col-span-2 mt-0.5 flex items-center justify-end font-mono text-[9px] text-muted-foreground sm:col-span-1 sm:mt-0 sm:justify-center sm:text-xs">
+                      <div className="flex items-center justify-center rounded-full bg-slate-100 px-2.5 py-0.5 font-mono text-[9px] font-semibold text-slate-600 sm:px-3 sm:py-1 sm:text-xs">
                         v{__APP_VERSION__}
-                      </span>
+                      </div>
                     </div>
                   </div>
 
