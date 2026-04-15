@@ -10,7 +10,7 @@ import {
   getPreferredStorage,
   removeFromBothStorages,
 } from "@/lib/authStorage";
-import { cacheKey, writeJson } from "@/lib/offline";
+import { cacheKey, readJson, writeJson } from "@/lib/offline";
 import { clearEncryptedLoginState, saveEncryptedLoginState } from "@/lib/secureLogin";
 
 const LAST_PATH_STORAGE_KEY = "safra:last_path";
@@ -37,6 +37,57 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const COMPANY_STORAGE_KEY = "safra:selected_empresa";
+const COMPANY_OBJECT_STORAGE_KEY = "safra:selected_empresa_obj_v1";
+const companiesCacheKey = (userId: string) => `safra:companies_cache:v1:${userId}`;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(new Error(`Timeout: ${label}`));
+    }, ms);
+
+    promise
+      .then((value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((err) => {
+        window.clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
+
+function readCachedSupabaseSession(): Session | null {
+  try {
+    const url = new URL(import.meta.env.VITE_SUPABASE_URL);
+    const projectRef = url.hostname.split(".")[0] || "";
+    const exactKey = projectRef ? `sb-${projectRef}-auth-token` : "";
+
+    const candidateKeys: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (!key) continue;
+      if (exactKey && key === exactKey) candidateKeys.push(key);
+      else if (key.startsWith("sb-") && key.endsWith("-auth-token")) candidateKeys.push(key);
+    }
+
+    for (const key of candidateKeys) {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw) as any;
+
+      // Common shapes: Session directly, or { currentSession: Session }
+      const maybeSession = (parsed?.access_token && parsed?.user) ? parsed : parsed?.currentSession;
+      if (maybeSession?.access_token && maybeSession?.user) {
+        return maybeSession as Session;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
 
 const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;
 
@@ -50,6 +101,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [companyReady, setCompanyReady] = useState(false);
   const [selectedCompany, setSelectedCompany] = useState<Tables<"empresas"> | null>(() => {
     try {
+      const storedObj = readJson<Tables<"empresas"> | null>(COMPANY_OBJECT_STORAGE_KEY, null);
+      if (storedObj?.id) return storedObj;
+
       const storedId = window.localStorage.getItem(COMPANY_STORAGE_KEY);
       return storedId ? ({ id: storedId, nome: "Carregando..." } as Tables<"empresas">) : null;
     } catch {
@@ -133,6 +187,30 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setCompanyReady(false);
     removeFromBothStorages(COMPANY_STORAGE_KEY);
     window.localStorage.removeItem(COMPANY_STORAGE_KEY);
+    window.localStorage.removeItem(COMPANY_OBJECT_STORAGE_KEY);
+  };
+
+  const hydrateCompaniesFromCache = (userId: string) => {
+    const cached = readJson<{ cachedAt?: string; companies: Tables<"empresas">[] } | null>(companiesCacheKey(userId), null);
+    const lista = cached?.companies ?? [];
+    if (lista.length) {
+      setCompanies(lista);
+    }
+
+    const storedId = window.localStorage.getItem(COMPANY_STORAGE_KEY);
+    const preferredId = storedId ?? selectedCompany?.id ?? null;
+    const preferredCompany = preferredId ? lista.find((empresa) => empresa.id === preferredId) : undefined;
+    if (preferredCompany) {
+      setSelectedCompany(preferredCompany);
+      writeJson(COMPANY_OBJECT_STORAGE_KEY, preferredCompany);
+      window.localStorage.setItem(COMPANY_STORAGE_KEY, preferredCompany.id);
+      return;
+    }
+
+    // If we have an id but not the full object, keep a placeholder so offline pages can still load cached data.
+    if (preferredId && !selectedCompany?.id) {
+      setSelectedCompany({ id: preferredId, nome: "Carregando..." } as Tables<"empresas">);
+    }
   };
 
   const loadCompanies = async (userId: string, userEmail?: string | null) => {
@@ -165,6 +243,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       setCompanies(lista);
 
+      writeJson(companiesCacheKey(userId), {
+        cachedAt: new Date().toISOString(),
+        companies: lista,
+      });
+
       // Empresa selecionada precisa persistir em reload, então usamos localStorage.
       const storedId = window.localStorage.getItem(COMPANY_STORAGE_KEY);
 
@@ -177,21 +260,23 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (preferredCompany) {
         setSelectedCompany(preferredCompany);
         window.localStorage.setItem(COMPANY_STORAGE_KEY, preferredCompany.id);
+        writeJson(COMPANY_OBJECT_STORAGE_KEY, preferredCompany);
         return;
       }
 
       if (lista.length === 1) {
         setSelectedCompany(lista[0]);
         window.localStorage.setItem(COMPANY_STORAGE_KEY, lista[0].id);
+        writeJson(COMPANY_OBJECT_STORAGE_KEY, lista[0]);
       } else {
         setSelectedCompany(null);
         window.localStorage.removeItem(COMPANY_STORAGE_KEY);
+        window.localStorage.removeItem(COMPANY_OBJECT_STORAGE_KEY);
       }
     } catch (error) {
       console.error("Erro ao carregar empresas vinculadas:", error);
-      // Importante: não derruba a empresa selecionada em falhas transitórias (reload/offline/intermitência).
-      // Mantém o que já temos e deixa o usuário seguir.
-      setCompanies([]);
+      // Offline/transiente: usa cache (se existir) e mantém seleção anterior.
+      hydrateCompaniesFromCache(userId);
     }
   };
 
@@ -213,12 +298,46 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     // Check existing session (must never leave the app stuck in loading on offline/edge cases)
     (async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const offline = !navigator.onLine;
+
+        // When offline, Supabase token refresh/network calls can hang.
+        // Hydrate from localStorage after a short grace period.
+        let hydrated = false;
+        const offlineHydrateTimer = offline
+          ? window.setTimeout(() => {
+              if (hydrated) return;
+              const cached = readCachedSupabaseSession();
+              if (!cached) return;
+              setSession(cached);
+              setUser(cached.user ?? null);
+              hydrated = true;
+            }, 600)
+          : undefined;
+
+        const { data: { session } } = await withTimeout(
+          supabase.auth.getSession(),
+          offline ? 1500 : 8000,
+          "supabase.auth.getSession",
+        );
+
+        hydrated = true;
+        if (offlineHydrateTimer != null) {
+          window.clearTimeout(offlineHydrateTimer);
+        }
         if (cancelled) return;
         setSession(session);
         setUser(session?.user ?? null);
       } catch (error) {
         console.warn("Falha ao recuperar sessão do Supabase (seguindo sem sessão):", error);
+
+        // Best-effort: offline fallback from localStorage
+        if (!navigator.onLine) {
+          const cached = readCachedSupabaseSession();
+          if (cached) {
+            setSession(cached);
+            setUser(cached.user ?? null);
+          }
+        }
       } finally {
         if (cancelled) return;
         setLoading(false);
@@ -244,14 +363,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       return;
     }
 
-    // Ao recarregar, pode haver um "flash" do seletor antes do loadCompanies concluir.
-    // Garantimos companiesLoading=true durante esse bootstrap.
+    // Always hydrate from cache first so offline/slow connections can proceed.
+    hydrateCompaniesFromCache(user.id);
+
+    // Offline: do not block on Supabase calls.
+    if (!navigator.onLine) {
+      setCompaniesLoading(false);
+      setCompanyReady(true);
+      return;
+    }
+
     setCompaniesLoading(true);
     setCompanyReady(false);
     (async () => {
       try {
-        await ensureProfileExists(user);
-        await loadCompanies(user.id, user.email);
+        // Best-effort; do not block startup too long.
+        await withTimeout(ensureProfileExists(user), 3500, "ensureProfileExists");
+        await withTimeout(loadCompanies(user.id, user.email), 6000, "loadCompanies");
+      } catch {
+        // Any failure falls back to cache/hydration already done.
+        hydrateCompaniesFromCache(user.id);
       } finally {
         setCompaniesLoading(false);
         setCompanyReady(true);
@@ -540,8 +671,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setSelectedCompany(company);
     if (company) {
       window.localStorage.setItem(COMPANY_STORAGE_KEY, company.id);
+      writeJson(COMPANY_OBJECT_STORAGE_KEY, company);
     } else {
       removeFromBothStorages(COMPANY_STORAGE_KEY);
+      window.localStorage.removeItem(COMPANY_OBJECT_STORAGE_KEY);
     }
   };
 
@@ -549,7 +682,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (user) {
       setCompaniesLoading(true);
       setCompanyReady(false);
-      await loadCompanies(user.id, user.email);
+      if (!navigator.onLine) {
+        hydrateCompaniesFromCache(user.id);
+      } else {
+        await loadCompanies(user.id, user.email);
+      }
       setCompaniesLoading(false);
       setCompanyReady(true);
     }
