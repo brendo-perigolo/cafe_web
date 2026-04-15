@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Clock, Search } from "lucide-react";
+import { ArrowLeft, Clock, Pencil, Plus, Search } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,12 +12,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
-import { getDeviceToken } from "@/lib/device";
+import { getDeviceToken, safeRandomUUID } from "@/lib/device";
 import { getAparelhoAtivo } from "@/lib/aparelhos";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { useOfflineSync } from "@/hooks/useOfflineSync";
-import { cacheKey, readJson, writeJson } from "@/lib/offline";
+import { cacheKey, getPendingPanhadorOps, readJson, writeJson } from "@/lib/offline";
 import { getDeviceLancamentoSettings } from "@/lib/deviceSettings";
 import { isUuid, toUuidOrNull } from "@/lib/uuid";
 import { z } from "zod";
@@ -83,7 +83,7 @@ interface LancamentoDialogProps {
 
 export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDialogProps) {
   const { user, selectedCompany } = useAuth();
-  const { savePendingColheita } = useOfflineSync();
+  const { isOnline, savePendingColheita, savePendingPanhadorCreate, savePendingPanhadorUpdate } = useOfflineSync();
   const [panhadores, setPanhadores] = useState<PanhadorOption[]>([]);
   const [propriedadesSupported, setPropriedadesSupported] = useState(true);
   const [propriedades, setPropriedades] = useState<PropriedadeOption[]>([]);
@@ -116,12 +116,18 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
   const [lavouraPadraoId, setLavouraPadraoId] = useState<string | null>(null);
   const [panhadorOpen, setPanhadorOpen] = useState(false);
 
+  const [panhadorEditorOpen, setPanhadorEditorOpen] = useState(false);
+  const [panhadorEditorMode, setPanhadorEditorMode] = useState<"create" | "edit">("create");
+  const [panhadorEditorNome, setPanhadorEditorNome] = useState("");
+  const [panhadorEditorApelido, setPanhadorEditorApelido] = useState("");
+  const [panhadorEditorSaving, setPanhadorEditorSaving] = useState(false);
+
   useEffect(() => {
     if (open) {
       loadPanhadores();
       loadPropriedades();
     }
-  }, [open, user, selectedCompany?.id]);
+  }, [open, user, selectedCompany?.id, isOnline]);
 
   useEffect(() => {
     const loadConfig = async () => {
@@ -435,6 +441,71 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
     }
 
     const panCacheKey = cacheKey("panhadores_list", selectedCompany.id);
+
+    const applyPendingOps = (base: PanhadorOption[]) => {
+      const ops = getPendingPanhadorOps().filter((op) => op.empresa_id === selectedCompany.id);
+      if (ops.length === 0) return base;
+
+      const map = new Map<string, PanhadorOption>();
+      for (const p of base) map.set(p.id, p);
+
+      const has = (obj: Record<string, unknown>, key: string) => Object.prototype.hasOwnProperty.call(obj, key);
+
+      for (const op of ops) {
+        const payload = op.payload as Record<string, unknown>;
+
+        if (op.action === "insert") {
+          const id = typeof payload.id === "string" ? payload.id : null;
+          const nome = typeof payload.nome === "string" ? payload.nome : null;
+          if (!id || !nome) continue;
+
+          const apelido =
+            payload.apelido == null ? null : typeof payload.apelido === "string" ? payload.apelido : null;
+          const bag_numero = typeof payload.bag_numero === "string" ? payload.bag_numero : null;
+          const bag_semana = typeof payload.bag_semana === "string" ? payload.bag_semana : null;
+          map.set(id, { id, nome, apelido, bag_numero, bag_semana });
+          continue;
+        }
+
+        const id = typeof payload.id === "string" ? payload.id : null;
+        if (!id) continue;
+
+        if (op.action === "deactivate") {
+          map.delete(id);
+          continue;
+        }
+
+        if (op.action === "update") {
+          const prev = map.get(id);
+          if (!prev) continue;
+
+          const nextNome = typeof payload.nome === "string" ? payload.nome : prev.nome;
+
+          let nextApelido = prev.apelido ?? null;
+          if (has(payload, "apelido")) {
+            nextApelido =
+              payload.apelido == null ? null : typeof payload.apelido === "string" ? payload.apelido : null;
+          }
+
+          let nextBag = prev.bag_numero ?? null;
+          if (has(payload, "bag_numero")) {
+            nextBag =
+              payload.bag_numero == null ? null : typeof payload.bag_numero === "string" ? payload.bag_numero : null;
+          }
+
+          let nextSemana = prev.bag_semana ?? null;
+          if (has(payload, "bag_semana")) {
+            nextSemana =
+              payload.bag_semana == null ? null : typeof payload.bag_semana === "string" ? payload.bag_semana : null;
+          }
+
+          map.set(id, { ...prev, nome: nextNome, apelido: nextApelido, bag_numero: nextBag, bag_semana: nextSemana });
+        }
+      }
+
+      return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+    };
+
     const loadFromCache = () => {
       const cached = readJson<{ bagFieldsSupported?: boolean; panhadores: PanhadorOption[] } | null>(panCacheKey, null);
       if (!cached?.panhadores) return false;
@@ -443,10 +514,10 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
       return true;
     };
 
-    if (!navigator.onLine) {
-      loadFromCache();
-      return;
-    }
+    // Sempre tenta cache primeiro (rápido e mantém operações offline visíveis).
+    loadFromCache();
+
+    if (!navigator.onLine) return;
 
     const { data, error } = await supabase
       .from("panhadores")
@@ -473,35 +544,167 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
           return;
         }
 
+        const base = ((fallback.data as unknown as PanhadorOption[]) || []) as PanhadorOption[];
+        const final = applyPendingOps(base);
+
         setBagFieldsSupported(false);
-        setPanhadores((fallback.data as unknown as PanhadorOption[]) || []);
+        setPanhadores(final);
 
         writeJson(panCacheKey, {
           cachedAt: new Date().toISOString(),
           bagFieldsSupported: false,
-          panhadores: (fallback.data as unknown as PanhadorOption[]) || [],
+          panhadores: final,
         });
         return;
       }
 
       console.error("Erro ao carregar panhadores:", error);
       toast({ title: "Erro", description: "Não foi possível carregar os panhadores.", variant: "destructive" });
-
-      loadFromCache();
       return;
     }
 
+    const base = (data || []) as PanhadorOption[];
+    const final = applyPendingOps(base);
+
     setBagFieldsSupported(true);
-    setPanhadores(data || []);
+    setPanhadores(final);
 
     writeJson(panCacheKey, {
       cachedAt: new Date().toISOString(),
       bagFieldsSupported: true,
-      panhadores: data || [],
+      panhadores: final,
     });
   };
 
   const selectedPanhador = panhadores.find((p) => p.id === panhadorId) ?? null;
+
+  const openPanhadorEditor = () => {
+    if (!user || !selectedCompany) {
+      toast({ title: "Selecione uma empresa", variant: "destructive" });
+      return;
+    }
+
+    const current = panhadores.find((p) => p.id === panhadorId) ?? null;
+
+    if (panhadorId && current) {
+      setPanhadorEditorMode("edit");
+      setPanhadorEditorNome(current.nome ?? "");
+      setPanhadorEditorApelido(current.apelido ?? "");
+    } else {
+      setPanhadorEditorMode("create");
+      setPanhadorEditorNome("");
+      setPanhadorEditorApelido("");
+    }
+
+    setPanhadorEditorOpen(true);
+  };
+
+  const savePanhadorFromEditor = async () => {
+    if (!user || !selectedCompany) {
+      toast({ title: "Selecione uma empresa", variant: "destructive" });
+      return;
+    }
+
+    const nome = panhadorEditorNome.trim();
+    const apelido = panhadorEditorApelido.trim();
+
+    if (nome.length < 3) {
+      toast({ title: "Nome inválido", description: "Informe pelo menos 3 caracteres.", variant: "destructive" });
+      return;
+    }
+
+    setPanhadorEditorSaving(true);
+    try {
+      const panCacheKey = cacheKey("panhadores_list", selectedCompany.id);
+      const normalizeOption = (p: PanhadorOption): PanhadorOption => ({
+        id: p.id,
+        nome: p.nome,
+        apelido: p.apelido ?? null,
+        bag_numero: p.bag_numero ?? null,
+        bag_semana: p.bag_semana ?? null,
+      });
+
+      if (panhadorEditorMode === "create") {
+        const id = safeRandomUUID();
+        const payload = {
+          id,
+          nome,
+          apelido: apelido ? apelido : null,
+          user_id: user.id,
+          empresa_id: selectedCompany.id,
+          ativo: true,
+        };
+
+        if (navigator.onLine) {
+          const { error } = await supabase.from("panhadores").insert(payload);
+          if (error) throw error;
+        } else {
+          savePendingPanhadorCreate(selectedCompany.id, payload);
+        }
+
+        const created: PanhadorOption = { id, nome, apelido: apelido ? apelido : null, bag_numero: null, bag_semana: null };
+        const next = [normalizeOption(created), ...panhadores.filter((p) => p.id !== id).map(normalizeOption)].sort((a, b) =>
+          a.nome.localeCompare(b.nome, "pt-BR"),
+        );
+
+        setPanhadores(next);
+        writeJson(panCacheKey, {
+          cachedAt: new Date().toISOString(),
+          bagFieldsSupported,
+          panhadores: next,
+        });
+
+        setPanhadorId(id);
+        setPanhadorEditorOpen(false);
+        toast({
+          title: navigator.onLine ? "Panhador cadastrado" : "Panhador salvo offline",
+          description: navigator.onLine ? undefined : "Será sincronizado quando a internet voltar.",
+        });
+        return;
+      }
+
+      // edit
+      if (!panhadorId) {
+        toast({ title: "Selecione um panhador", variant: "destructive" });
+        return;
+      }
+
+      const payload = { id: panhadorId, nome, apelido: apelido ? apelido : null };
+
+      if (navigator.onLine) {
+        const { error } = await supabase
+          .from("panhadores")
+          .update(payload)
+          .eq("id", panhadorId)
+          .eq("empresa_id", selectedCompany.id);
+        if (error) throw error;
+      } else {
+        savePendingPanhadorUpdate(selectedCompany.id, payload);
+      }
+
+      const next = panhadores
+        .map((p) => (p.id === panhadorId ? normalizeOption({ ...p, nome, apelido: apelido ? apelido : null }) : normalizeOption(p)))
+        .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+
+      setPanhadores(next);
+      writeJson(panCacheKey, {
+        cachedAt: new Date().toISOString(),
+        bagFieldsSupported,
+        panhadores: next,
+      });
+
+      setPanhadorEditorOpen(false);
+      toast({
+        title: navigator.onLine ? "Panhador atualizado" : "Alteração salva offline",
+        description: navigator.onLine ? undefined : "Será sincronizada quando a internet voltar.",
+      });
+    } catch (error) {
+      console.error("Erro ao salvar panhador:", error);
+      toast({ title: "Erro", description: "Não foi possível salvar o panhador.", variant: "destructive" });
+    } finally {
+      setPanhadorEditorSaving(false);
+    }
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -931,6 +1134,22 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
         return;
       }
 
+      const hasPendingPanhadorInsert = getPendingPanhadorOps().some((op) => {
+        if (op.empresa_id !== selectedCompany.id) return false;
+        if (op.action !== "insert") return false;
+        const payload = op.payload as Record<string, unknown>;
+        return typeof payload.id === "string" && payload.id === parsed.panhadorId;
+      });
+
+      if (hasPendingPanhadorInsert) {
+        toast({
+          title: "Panhador pendente",
+          description: "Este panhador foi cadastrado offline e ainda não sincronizou. Salvando a colheita offline para sincronizar depois.",
+        });
+        enqueueOffline();
+        return;
+      }
+
       let pendenteAparelho = true;
       try {
         const ativo = await getAparelhoAtivo(selectedCompany.id, aparelhoToken);
@@ -1254,6 +1473,75 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
           </InlineDialogContent>
         </InlineDialog>
 
+        <InlineDialog
+          open={panhadorEditorOpen}
+          onOpenChange={(open) => {
+            setPanhadorEditorOpen(open);
+          }}
+        >
+          <InlineDialogContent>
+            <InlineDialogHeader>
+              <InlineDialogTitle>{panhadorEditorMode === "edit" ? "Editar panhador" : "Novo panhador"}</InlineDialogTitle>
+              <InlineDialogDescription>
+                {panhadorEditorMode === "edit"
+                  ? "Corrija os dados do panhador sem sair do lançamento."
+                  : "Cadastre um novo panhador sem sair do lançamento."}
+              </InlineDialogDescription>
+            </InlineDialogHeader>
+
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <Label htmlFor="panhadorEditorNome">Nome</Label>
+                <Input
+                  id="panhadorEditorNome"
+                  value={panhadorEditorNome}
+                  onChange={(e) => setPanhadorEditorNome(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void savePanhadorFromEditor();
+                    }
+                  }}
+                  placeholder="Ex: João da Silva"
+                  maxLength={120}
+                  autoFocus
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="panhadorEditorApelido">Apelido (opcional)</Label>
+                <Input
+                  id="panhadorEditorApelido"
+                  value={panhadorEditorApelido}
+                  onChange={(e) => setPanhadorEditorApelido(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void savePanhadorFromEditor();
+                    }
+                  }}
+                  placeholder="Ex: Joãozinho"
+                  maxLength={80}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => setPanhadorEditorOpen(false)}
+                disabled={panhadorEditorSaving}
+              >
+                Cancelar
+              </Button>
+              <Button type="button" onClick={() => void savePanhadorFromEditor()} disabled={panhadorEditorSaving}>
+                {panhadorEditorSaving ? "Salvando..." : "Salvar"}
+              </Button>
+            </div>
+          </InlineDialogContent>
+        </InlineDialog>
+
           <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
             <div className="rounded-3xl border bg-card p-4 sm:rounded-2xl">
               <div className="space-y-4">
@@ -1261,47 +1549,61 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
                   <Label>
                     Apanhador <span className="text-destructive">*</span>
                   </Label>
-                  <Popover open={panhadorOpen} onOpenChange={setPanhadorOpen}>
-                    <PopoverTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        role="combobox"
-                        className="w-full justify-start bg-muted"
-                      >
-                        <span className={cn("truncate", !panhadorId && "text-muted-foreground")}>
-                          {selectedPanhador
-                            ? `${selectedPanhador.nome}${selectedPanhador.apelido ? ` (${selectedPanhador.apelido})` : ""}${(selectedPanhador.bag_numero ?? "").trim() ? ` - Bag ${(selectedPanhador.bag_numero ?? "").trim()}` : ""}`
-                            : "Selecione um apanhador..."}
-                        </span>
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                      <Command>
-                        <CommandInput placeholder="Buscar por nome, apelido ou bag..." />
-                        <CommandList>
-                          <CommandEmpty>Nenhum apanhador encontrado.</CommandEmpty>
-                          <CommandGroup>
-                            {panhadores.map((p) => (
-                              <CommandItem
-                                key={p.id}
-                                value={`${p.nome} ${p.apelido ?? ""} ${p.bag_numero ?? ""}`}
-                                className="data-[selected=true]:bg-primary data-[selected=true]:text-primary-foreground"
-                                onSelect={() => {
-                                  setPanhadorId(p.id);
-                                  setPanhadorOpen(false);
-                                }}
-                              >
-                                {p.nome}
-                                {p.apelido ? ` (${p.apelido})` : ""}
-                                {(p.bag_numero ?? "").trim() ? ` - Bag ${(p.bag_numero ?? "").trim()}` : ""}
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        </CommandList>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
+                  <div className="flex items-center gap-2">
+                    <Popover open={panhadorOpen} onOpenChange={setPanhadorOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          role="combobox"
+                          className="flex-1 justify-start bg-white hover:bg-white"
+                        >
+                          <span className={cn("truncate", !panhadorId && "text-muted-foreground")}>
+                            {selectedPanhador
+                              ? `${selectedPanhador.nome}${selectedPanhador.apelido ? ` (${selectedPanhador.apelido})` : ""}${(selectedPanhador.bag_numero ?? "").trim() ? ` - Bag ${(selectedPanhador.bag_numero ?? "").trim()}` : ""}`
+                              : "Selecione um apanhador..."}
+                          </span>
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Buscar por nome, apelido ou bag..." />
+                          <CommandList>
+                            <CommandEmpty>Nenhum apanhador encontrado.</CommandEmpty>
+                            <CommandGroup>
+                              {panhadores.map((p) => (
+                                <CommandItem
+                                  key={p.id}
+                                  value={`${p.nome} ${p.apelido ?? ""} ${p.bag_numero ?? ""}`}
+                                  className="data-[selected=true]:bg-primary data-[selected=true]:text-primary-foreground"
+                                  onSelect={() => {
+                                    setPanhadorId(p.id);
+                                    setPanhadorOpen(false);
+                                  }}
+                                >
+                                  {p.nome}
+                                  {p.apelido ? ` (${p.apelido})` : ""}
+                                  {(p.bag_numero ?? "").trim() ? ` - Bag ${(p.bag_numero ?? "").trim()}` : ""}
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="shrink-0"
+                      onClick={openPanhadorEditor}
+                      aria-label={panhadorId ? "Editar panhador" : "Cadastrar panhador"}
+                      title={panhadorId ? "Editar panhador" : "Cadastrar panhador"}
+                    >
+                      {panhadorId ? <Pencil className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                    </Button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
