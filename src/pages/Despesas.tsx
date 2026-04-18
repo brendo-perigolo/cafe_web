@@ -244,6 +244,19 @@ export default function Despesas() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, selectedCompany?.id]);
 
+  useEffect(() => {
+    const handler = () => {
+      if (!selectedCompany) {
+        toast({ title: "Selecione uma empresa", description: "Escolha a empresa antes de incluir um título." });
+        return;
+      }
+      openCreate();
+    };
+
+    window.addEventListener("safra:despesas_add", handler);
+    return () => window.removeEventListener("safra:despesas_add", handler);
+  }, [selectedCompany]);
+
   const openCreate = () => {
     const today = new Date();
     const isoDate = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())).toISOString().slice(0, 10);
@@ -482,12 +495,7 @@ export default function Despesas() {
         <div className="mb-4 flex items-center justify-between gap-3">
           <div className="min-w-0">
             <h1 className="truncate text-xl font-semibold">Controle Financeiro</h1>
-            <p className="text-sm text-muted-foreground">Despesas da empresa (inclui panha quitada) e resumo de gastos.</p>
           </div>
-          <Button onClick={openCreate} className="shrink-0">
-            <Plus className="mr-2 h-4 w-4" />
-            Incluir
-          </Button>
         </div>
 
         <Card className="mb-4">
@@ -506,7 +514,7 @@ export default function Despesas() {
                 <div className="mb-3 text-sm text-muted-foreground">
                   Total de despesas: <span className="font-semibold text-foreground">{currencyFormatter.format(totalDespesas)}</span>
                 </div>
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid grid-cols-2 gap-2 lg:grid-cols-3">
                   {planosComLancamentos.map((plano, index) => {
                     const resumo = gastosByPlano[plano.id] ?? { total: 0, count: 0 };
                     const variant = cardVariants[index % cardVariants.length];

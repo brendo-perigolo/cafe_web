@@ -433,6 +433,15 @@ export default function Dashboard() {
     },
   ];
 
+  const statsAccent = [
+    "border-amber-100 bg-amber-50/70 text-amber-900",
+    "border-emerald-100 bg-emerald-50/70 text-emerald-900",
+    "border-sky-100 bg-sky-50/70 text-sky-900",
+    "border-violet-100 bg-violet-50/70 text-violet-900",
+    "border-rose-100 bg-rose-50/70 text-rose-900",
+    "border-slate-200 bg-slate-50/80 text-slate-900",
+  ] as const;
+
   const sidebarItems = useMemo<NavigationItem[]>(
     () => [
       ...navigationItems,
@@ -504,7 +513,8 @@ export default function Dashboard() {
           <Navbar />
           <main className="px-4 py-5 sm:px-6 sm:py-8 lg:px-10">
           <section className="grid gap-4 sm:gap-6 lg:grid-cols-[2fr_1fr]">
-            <Card className="rounded-3xl border border-slate-100 bg-white shadow-coffee">
+            <div className="space-y-3 sm:space-y-4">
+              <Card className="rounded-3xl border border-slate-100 bg-white shadow-coffee">
               <CardHeader className="flex flex-col gap-4 pb-0">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex flex-col gap-1">
@@ -568,20 +578,69 @@ export default function Dashboard() {
                   ))}
                 </div>
               </CardContent>
-            </Card>
+              </Card>
+
+              <div className="grid grid-cols-2 gap-2 sm:hidden">
+                {statsCards.slice(0, 6).map((stat, index) => (
+                  <Card
+                    key={stat.label}
+                    className={cn(
+                      "rounded-2xl border shadow-coffee",
+                      statsAccent[index % statsAccent.length],
+                    )}
+                  >
+                    <CardContent className="flex flex-col gap-1 p-2.5">
+                      <div className="flex items-center justify-between gap-2 text-[9px] uppercase tracking-[0.32em] text-muted-foreground">
+                        <span className="truncate">{stat.label}</span>
+                        <stat.icon className="h-3.5 w-3.5 opacity-80" />
+                      </div>
+                      <p className="truncate font-display text-[15px] leading-tight" title={String(stat.value)}>
+                        {stat.value}
+                      </p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+
+              <div className="hidden grid-cols-3 gap-3 sm:grid sm:gap-4">
+                {statsCards.map((stat, index) => (
+                  <Card
+                    key={stat.label}
+                    className={cn(
+                      "rounded-2xl border shadow-coffee",
+                      statsAccent[index % statsAccent.length],
+                    )}
+                  >
+                    <CardContent className="flex flex-col gap-1.5 p-3 sm:p-4">
+                      <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.35em] text-muted-foreground">
+                        <span className="truncate">{stat.label}</span>
+                        <stat.icon className="h-4 w-4 opacity-80" />
+                      </div>
+                      <p className="truncate font-display text-base leading-tight sm:text-xl" title={String(stat.value)}>
+                        {stat.value}
+                      </p>
+                      <p className="hidden text-[11px] text-muted-foreground sm:block">{stat.helper}</p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
 
             <Card className="rounded-3xl border border-slate-100 bg-white shadow-coffee">
-              <CardHeader className="pb-4">
-                <CardTitle className="font-display text-base sm:text-lg">Últimas colheitas</CardTitle>
-                <CardDescription className="text-xs">Atualizado em tempo real</CardDescription>
+              <CardHeader className="pb-3 sm:pb-4">
+                <CardTitle className="font-display text-sm sm:text-lg">Últimas colheitas</CardTitle>
+                <CardDescription className="text-[10px] sm:text-xs">Atualizado em tempo real</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="max-h-[240px] space-y-2 overflow-y-auto pr-2 sm:max-h-[360px]">
+                <div className="max-h-[200px] space-y-1.5 overflow-y-auto pr-2 sm:max-h-[360px] sm:space-y-2">
                   {ultimasColheitas.length === 0 && (
                     <p className="text-center text-sm text-muted-foreground">Nenhuma colheita registrada ainda.</p>
                   )}
                   {ultimasColheitas.map((colheita) => (
-                    <div key={colheita.id} className="rounded-xl border border-slate-200/60 bg-slate-50/60 px-3 py-2">
+                    <div
+                      key={colheita.id}
+                      className="rounded-xl border border-slate-200/60 bg-slate-50/60 px-2.5 py-1.5 sm:px-3 sm:py-2"
+                    >
                       <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
                         <span className="font-mono">#{colheita.codigo}</span>
                         <span className="font-mono tabular-nums text-foreground">
@@ -589,28 +648,28 @@ export default function Dashboard() {
                         </span>
                       </div>
 
-                      <div className="mt-1.5 grid grid-cols-[1fr_auto] gap-3">
+                      <div className="mt-1 grid grid-cols-[1fr_auto] gap-3">
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-[hsl(24_25%_25%)]">{colheita.panhador.nome}</p>
+                          <p className="truncate text-[13px] font-semibold text-[hsl(24_25%_25%)] sm:text-sm">{colheita.panhador.nome}</p>
                         </div>
 
                         <div className="text-right">
-                          <p className="text-sm font-semibold tabular-nums text-[hsl(24_35%_30%)]">{colheita.peso_kg.toFixed(2)} kg</p>
-                          <p className="text-[11px] text-muted-foreground tabular-nums">
+                          <p className="text-[13px] font-semibold tabular-nums text-[hsl(24_35%_30%)] sm:text-sm">{colheita.peso_kg.toFixed(2)} kg</p>
+                          <p className="text-[10px] text-muted-foreground tabular-nums sm:text-[11px]">
                             {colheita.quantidade_balaios != null ? `${colheita.quantidade_balaios.toFixed(2)} balaios` : "- balaios"}
                           </p>
-                          <p className="text-[11px] text-muted-foreground tabular-nums">
+                          <p className="hidden text-[11px] text-muted-foreground tabular-nums sm:block">
                             {colheita.quantidade_balaios && colheita.quantidade_balaios > 0
                               ? `Média ${(colheita.peso_kg / colheita.quantidade_balaios).toFixed(2)} kg/balaio`
                               : "Média -"}
                           </p>
-                          <p className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">
+                          <p className="mt-0.5 text-[10px] text-muted-foreground tabular-nums sm:text-[11px]">
                             {colheita.valor_total != null ? currencyFormatter.format(colheita.valor_total) : "Valor pendente"}
                           </p>
                         </div>
                       </div>
 
-                      <div className="mt-2 flex items-center justify-between text-[11px]">
+                      <div className="mt-1.5 flex items-center justify-between text-[10px] sm:mt-2 sm:text-[11px]">
                         <span className="flex items-center gap-1 text-[hsl(24_35%_30%)]">
                           <Calendar className="h-3 w-3" />
                           <span className="tabular-nums">
@@ -623,26 +682,6 @@ export default function Dashboard() {
                 </div>
               </CardContent>
             </Card>
-          </section>
-
-          <section className="mt-6 grid grid-cols-3 gap-3 sm:gap-4">
-            {statsCards.map((stat) => (
-              <Card key={stat.label} className="rounded-2xl border border-slate-100 bg-white/90 shadow-coffee">
-                <CardContent className="flex flex-col gap-1.5 p-3 sm:p-4">
-                  <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.35em] text-muted-foreground">
-                    <span className="truncate">{stat.label}</span>
-                    <stat.icon className="h-4 w-4" />
-                  </div>
-                  <p
-                    className="truncate font-display text-base leading-tight text-[hsl(24_30%_25%)] sm:text-xl"
-                    title={String(stat.value)}
-                  >
-                    {stat.value}
-                  </p>
-                  <p className="hidden text-[11px] text-muted-foreground sm:block">{stat.helper}</p>
-                </CardContent>
-              </Card>
-            ))}
           </section>
 
           {!isOnline && (

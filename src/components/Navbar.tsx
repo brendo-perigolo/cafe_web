@@ -51,6 +51,13 @@ export const Navbar = () => {
     }
 
     switch (location.pathname) {
+      case "/despesas":
+        return {
+          label: "Título",
+          ariaLabel: "Novo título",
+          title: "Novo título",
+          onClick: () => dispatchNavEvent("safra:despesas_add"),
+        } as const;
       case "/panhadores":
         return {
           label: "Panhador",
@@ -178,10 +185,16 @@ export const Navbar = () => {
             </SheetContent>
           </Sheet>
 
-          <div className="min-w-0 flex-1">
+          <button
+            type="button"
+            onClick={() => navigate("/dashboard")}
+            className="min-w-0 flex-1 text-left"
+            aria-label="Voltar para o dashboard"
+            title="Voltar para o dashboard"
+          >
             <p className="truncate text-sm font-semibold">{selectedCompany?.nome ?? "Minha Colheita Café"}</p>
             <p className="truncate text-xs text-muted-foreground">{selectedCompany ? "Operando" : "Selecione uma empresa"}</p>
-          </div>
+          </button>
 
           <div className="flex items-center gap-2">
             {isConfig ? (
@@ -237,9 +250,15 @@ export const Navbar = () => {
               <img src="/logo_minha_cafe.png" alt="Logo" className="h-6 w-6 object-contain" />
               <span className="truncate text-lg font-semibold text-foreground">Minha Colheita Café</span>
             </button>
-            <span className="truncate text-xs text-muted-foreground">
+            <button
+              type="button"
+              onClick={() => navigate("/dashboard")}
+              className="truncate text-left text-xs text-muted-foreground"
+              aria-label="Voltar para o dashboard"
+              title="Voltar para o dashboard"
+            >
               {selectedCompany ? `Operando como ${selectedCompany.nome}` : "Selecione uma empresa"}
-            </span>
+            </button>
           </div>
 
           <div className="flex items-center gap-2" aria-label="Navegação">

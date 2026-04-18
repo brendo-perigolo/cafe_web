@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navbar } from "@/components/Navbar";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,6 +13,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
 import { getDeviceLancamentoSettings } from "@/lib/deviceSettings";
 import { Tables, TablesInsert, TablesUpdate } from "@/integrations/supabase/types";
+import { Eye, EyeOff, Leaf, Pencil, Power } from "lucide-react";
 
 type ColheitaResumo = {
   peso_kg: number;
@@ -778,22 +779,18 @@ export default function PropriedadesLavouras() {
   }, [despesasLavoura]);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-slate-50">
       <Navbar />
 
       <main className="container mx-auto px-4 py-4 space-y-4 sm:py-6 sm:space-y-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-semibold sm:text-2xl">Propriedades e Lavouras</h1>
-            <p className="text-sm text-muted-foreground">
-              Visualize as propriedades e as lavouras vinculadas. Cadastre/edite usando os botões.
-            </p>
-          </div>
+        <div className="space-y-2">
+          <h1 className="text-xl font-semibold sm:text-2xl">Propriedades</h1>
+
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Safra</span>
+              <span className="text-xs text-muted-foreground">Safra</span>
               <Select value={String(selectedSafra)} onValueChange={(v) => setSelectedSafra(Number(v))}>
-                <SelectTrigger className="w-[120px] sm:w-[140px]">
+                <SelectTrigger className="h-8 w-[110px] text-xs sm:w-[140px]">
                   <SelectValue placeholder="Safra" />
                 </SelectTrigger>
                 <SelectContent>
@@ -805,16 +802,27 @@ export default function PropriedadesLavouras() {
                 </SelectContent>
               </Select>
             </div>
+
             <Button
               type="button"
               size="sm"
-              variant={showInativos ? "default" : "outline"}
+              variant="outline"
               onClick={() => setShowInativos((v) => !v)}
+              className="h-8 px-2.5 text-xs"
+              aria-pressed={showInativos}
             >
-              {showInativos ? "Mostrando inativos" : "Ocultar inativos"}
+              {showInativos ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+              <span className="ml-2 hidden sm:inline">Inativos</span>
             </Button>
-            <Button type="button" size="sm" onClick={openCreatePropriedade} disabled={!selectedCompany}>
-              Cadastrar propriedade
+
+            <Button
+              type="button"
+              size="sm"
+              onClick={openCreatePropriedade}
+              disabled={!selectedCompany}
+              className="h-8 px-3 text-xs"
+            >
+              Cadastrar
             </Button>
           </div>
         </div>
@@ -825,14 +833,6 @@ export default function PropriedadesLavouras() {
           <div className="rounded-lg border p-3 text-sm text-muted-foreground">Nenhuma propriedade cadastrada</div>
         ) : (
           <Card className="shadow-coffee">
-            <CardHeader className="space-y-2">
-              <CardTitle>Produção por safra</CardTitle>
-              <CardDescription>
-                {loadingProducao
-                  ? "Carregando produção..."
-                  : `Soma de lançamentos da safra ${selectedSafra}. Litros calculados por 60L/balaio.`}
-              </CardDescription>
-            </CardHeader>
             <CardContent>
               <Accordion type="multiple" className="w-full space-y-3">
                 {propriedadesFiltradas.map((propriedade) => {
@@ -847,7 +847,7 @@ export default function PropriedadesLavouras() {
                     <AccordionItem
                       key={propriedade.id}
                       value={propriedade.id}
-                      className="rounded-2xl border border-slate-100 bg-white px-3"
+                      className="rounded-2xl border border-slate-200/70 bg-white px-3"
                     >
                       <AccordionTrigger className="py-3 hover:no-underline">
                         <div className="min-w-0 flex-1 text-left">
@@ -857,23 +857,23 @@ export default function PropriedadesLavouras() {
                           <p className="mt-0.5 min-w-0 truncate text-xs text-muted-foreground">{propriedade.endereco ?? "—"}</p>
 
                           <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3 lg:grid-cols-5">
-                            <div className="rounded-xl bg-slate-50 px-3 py-2">
+                            <div className="rounded-xl border border-amber-100 bg-amber-50/70 px-3 py-2">
                               <p className="text-muted-foreground">Pés</p>
                               <p className="font-medium leading-none">{pesProp}</p>
                             </div>
-                            <div className="rounded-xl bg-slate-50 px-3 py-2">
+                            <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-3 py-2">
                               <p className="text-muted-foreground">Produção</p>
                               <p className="font-medium leading-none truncate">{formatKg(totalKgProp)}</p>
                             </div>
-                            <div className="rounded-xl bg-slate-50 px-3 py-2">
+                            <div className="rounded-xl border border-sky-100 bg-sky-50/70 px-3 py-2">
                               <p className="text-muted-foreground">Balaios</p>
                               <p className="font-medium leading-none truncate">{formatBalaios(totalBalaiosProp)}</p>
                             </div>
-                            <div className="rounded-xl bg-slate-50 px-3 py-2">
+                            <div className="rounded-xl border border-violet-100 bg-violet-50/70 px-3 py-2">
                               <p className="text-muted-foreground">Litros (60L)</p>
                               <p className="font-medium leading-none truncate">{formatLitros(totalBalaiosProp)}</p>
                             </div>
-                            <div className="rounded-xl bg-slate-50 px-3 py-2">
+                            <div className="rounded-xl border border-rose-100 bg-rose-50/70 px-3 py-2">
                               <p className="text-muted-foreground">Litros/pé (média)</p>
                               <p className="font-medium leading-none truncate">{formatLitrosPorPe(totalBalaiosProp, pesProp)}</p>
                             </div>
@@ -882,20 +882,45 @@ export default function PropriedadesLavouras() {
                       </AccordionTrigger>
 
                       <AccordionContent className="pt-0">
-                        <div className="mb-3 flex flex-wrap gap-2">
-                          <Button type="button" variant="ghost" size="sm" onClick={() => openEditPropriedade(propriedade)}>
-                            Editar
+                        <div className="mb-3 flex flex-wrap items-center gap-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 bg-sky-50 text-sky-700 hover:bg-sky-100"
+                            onClick={() => openEditPropriedade(propriedade)}
+                            aria-label="Editar propriedade"
+                            title="Editar"
+                          >
+                            <Pencil className="h-4 w-4" />
                           </Button>
+
                           <Button
                             type="button"
                             variant={propAtivo ? "outline" : "default"}
-                            size="sm"
+                            size="icon"
+                            className={
+                              propAtivo
+                                ? "h-8 w-8 border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                                : "h-8 w-8 bg-emerald-600 text-white hover:bg-emerald-700"
+                            }
                             onClick={() => togglePropriedadeAtivo(propriedade)}
+                            aria-label={propAtivo ? "Inativar propriedade" : "Ativar propriedade"}
+                            title={propAtivo ? "Inativar" : "Ativar"}
                           >
-                            {propAtivo ? "Inativar" : "Ativar"}
+                            <Power className="h-4 w-4" />
                           </Button>
-                          <Button type="button" size="sm" onClick={() => openCreateLavoura(propriedade)}>
-                            Cadastrar lavoura
+
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8 border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                            onClick={() => openCreateLavoura(propriedade)}
+                            aria-label="Cadastrar nova lavoura"
+                            title="Cadastrar lavoura"
+                          >
+                            <Leaf className="h-4 w-4" />
                           </Button>
                         </div>
 
@@ -911,64 +936,82 @@ export default function PropriedadesLavouras() {
                               Nenhuma lavoura cadastrada
                             </div>
                           ) : (
-                            sub.map((lavoura) => {
-                              const lavAtivo = (lavoura as unknown as { ativo?: boolean }).ativo !== false;
-                              const totalKgLav = producaoPorLavoura.get(lavoura.id) ?? 0;
-                              const totalBalaiosLav = balaiosPorLavoura.get(lavoura.id) ?? 0;
-                              const pesLav = Number(lavoura.quantidade_pe_de_cafe) || 0;
+                            <div className="rounded-xl border border-slate-200/70 bg-slate-50/40 p-2">
+                              <div className="divide-y divide-slate-200/70">
+                                {sub.map((lavoura) => {
+                                  const lavAtivo = (lavoura as unknown as { ativo?: boolean }).ativo !== false;
+                                  const totalKgLav = producaoPorLavoura.get(lavoura.id) ?? 0;
+                                  const totalBalaiosLav = balaiosPorLavoura.get(lavoura.id) ?? 0;
+                                  const pesLav = Number(lavoura.quantidade_pe_de_cafe) || 0;
 
-                              return (
-                                <div key={lavoura.id} className="rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2">
-                                  <div className="flex flex-wrap items-start justify-between gap-2">
-                                    <button
-                                      type="button"
-                                      className="min-w-0 flex-1 text-left"
-                                      onClick={() => openLavouraDetalhes(propriedade, lavoura)}
-                                    >
-                                      <p className="min-w-0 truncate text-sm font-medium">
-                                        {lavoura.nome} {!lavAtivo ? "(inativo)" : ""}
-                                      </p>
-
-                                      <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-3 lg:grid-cols-5">
-                                        <div className="rounded-lg bg-white px-2.5 py-1.5">
-                                          <p className="text-muted-foreground">Pés</p>
-                                          <p className="font-medium leading-none">{pesLav}</p>
-                                        </div>
-                                        <div className="rounded-lg bg-white px-2.5 py-1.5">
-                                          <p className="text-muted-foreground">Produção</p>
-                                          <p className="font-medium leading-none truncate">{formatKg(totalKgLav)}</p>
-                                        </div>
-                                        <div className="rounded-lg bg-white px-2.5 py-1.5">
-                                          <p className="text-muted-foreground">Balaios</p>
-                                          <p className="font-medium leading-none truncate">{formatBalaios(totalBalaiosLav)}</p>
-                                        </div>
-                                        <div className="rounded-lg bg-white px-2.5 py-1.5">
-                                          <p className="text-muted-foreground">Litros (60L)</p>
-                                          <p className="font-medium leading-none truncate">{formatLitros(totalBalaiosLav)}</p>
-                                        </div>
-                                        <div className="rounded-lg bg-white px-2.5 py-1.5">
-                                          <p className="text-muted-foreground">Litros/pé</p>
-                                          <p className="font-medium leading-none truncate">{formatLitrosPorPe(totalBalaiosLav, pesLav)}</p>
-                                        </div>
-                                      </div>
-                                    </button>
-                                    <div className="flex flex-wrap gap-2">
-                                      <Button type="button" variant="ghost" size="sm" onClick={() => openEditLavoura(propriedade, lavoura)}>
-                                        Editar
-                                      </Button>
-                                      <Button
+                                  return (
+                                    <div key={lavoura.id} className="py-3 first:pt-1 last:pb-1">
+                                      <button
                                         type="button"
-                                        variant={lavAtivo ? "outline" : "default"}
-                                        size="sm"
-                                        onClick={() => toggleLavouraAtivo(lavoura)}
+                                        className="w-full text-left"
+                                        onClick={() => openLavouraDetalhes(propriedade, lavoura)}
                                       >
-                                        {lavAtivo ? "Inativar" : "Ativar"}
-                                      </Button>
+                                        <p className="min-w-0 truncate text-sm font-medium text-[hsl(24_25%_25%)]">
+                                          {lavoura.nome} {!lavAtivo ? "(inativo)" : ""}
+                                        </p>
+
+                                        <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-3 lg:grid-cols-5">
+                                          <div className="rounded-lg border border-amber-100 bg-amber-50/60 px-2.5 py-1.5">
+                                            <p className="text-muted-foreground">Pés</p>
+                                            <p className="font-medium leading-none">{pesLav}</p>
+                                          </div>
+                                          <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 px-2.5 py-1.5">
+                                            <p className="text-muted-foreground">Produção</p>
+                                            <p className="font-medium leading-none truncate">{formatKg(totalKgLav)}</p>
+                                          </div>
+                                          <div className="rounded-lg border border-sky-100 bg-sky-50/60 px-2.5 py-1.5">
+                                            <p className="text-muted-foreground">Balaios</p>
+                                            <p className="font-medium leading-none truncate">{formatBalaios(totalBalaiosLav)}</p>
+                                          </div>
+                                          <div className="rounded-lg border border-violet-100 bg-violet-50/60 px-2.5 py-1.5">
+                                            <p className="text-muted-foreground">Litros (60L)</p>
+                                            <p className="font-medium leading-none truncate">{formatLitros(totalBalaiosLav)}</p>
+                                          </div>
+                                          <div className="rounded-lg border border-rose-100 bg-rose-50/60 px-2.5 py-1.5">
+                                            <p className="text-muted-foreground">Litros/pé</p>
+                                            <p className="font-medium leading-none truncate">{formatLitrosPorPe(totalBalaiosLav, pesLav)}</p>
+                                          </div>
+                                        </div>
+                                      </button>
+
+                                      <div className="mt-2 flex flex-wrap items-center gap-1">
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-8 w-8 bg-sky-50 text-sky-700 hover:bg-sky-100"
+                                          onClick={() => openEditLavoura(propriedade, lavoura)}
+                                          aria-label="Editar lavoura"
+                                          title="Editar"
+                                        >
+                                          <Pencil className="h-4 w-4" />
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          variant={lavAtivo ? "outline" : "default"}
+                                          size="icon"
+                                          className={
+                                            lavAtivo
+                                              ? "h-8 w-8 border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                                              : "h-8 w-8 bg-emerald-600 text-white hover:bg-emerald-700"
+                                          }
+                                          onClick={() => toggleLavouraAtivo(lavoura)}
+                                          aria-label={lavAtivo ? "Inativar lavoura" : "Ativar lavoura"}
+                                          title={lavAtivo ? "Inativar" : "Ativar"}
+                                        >
+                                          <Power className="h-4 w-4" />
+                                        </Button>
+                                      </div>
                                     </div>
-                                  </div>
-                                </div>
-                              );
-                            })
+                                  );
+                                })}
+                              </div>
+                            </div>
                           )}
                         </div>
                       </AccordionContent>
