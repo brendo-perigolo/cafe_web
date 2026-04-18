@@ -80,9 +80,11 @@ export async function prefetchCriticalScreens() {
 	// This is a no-op in environments that don't support dynamic import prefetch.
 	try {
 		await Promise.all([
+			import("@/pages/Auth"),
 			import("@/pages/Dashboard"),
 			import("@/pages/Panhadores"),
 			import("@/pages/Lancamento"),
+			import("@/pages/SelectEmpresa"),
 		]);
 	} catch {
 		// Ignore: prefetch is best-effort

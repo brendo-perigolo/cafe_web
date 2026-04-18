@@ -603,6 +603,8 @@ export type Database = {
           plano_conta_id: string
           pagamento_metodo: string | null
           colheita_id: string | null
+          propriedade_id: string | null
+          lavoura_id: string | null
           created_at: string
           updated_at: string
         }
@@ -616,6 +618,8 @@ export type Database = {
           plano_conta_id: string
           pagamento_metodo?: string | null
           colheita_id?: string | null
+          propriedade_id?: string | null
+          lavoura_id?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -629,6 +633,8 @@ export type Database = {
           plano_conta_id?: string
           pagamento_metodo?: string | null
           colheita_id?: string | null
+          propriedade_id?: string | null
+          lavoura_id?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -655,10 +661,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "despesas_lavoura_id_fkey"
+            columns: ["lavoura_id"]
+            isOneToOne: false
+            referencedRelation: "lavouras"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "despesas_plano_conta_id_fkey"
             columns: ["plano_conta_id"]
             isOneToOne: false
             referencedRelation: "planos_contas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "despesas_propriedade_id_fkey"
+            columns: ["propriedade_id"]
+            isOneToOne: false
+            referencedRelation: "propriedades"
             referencedColumns: ["id"]
           },
         ]

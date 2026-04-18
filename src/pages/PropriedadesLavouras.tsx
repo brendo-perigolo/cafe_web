@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navbar } from "@/components/Navbar";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +22,35 @@ type ColheitaResumo = {
   lavoura_id: string;
 };
 
+type PlanoContaResumo = {
+  id: string;
+  nome: string;
+};
+
+type DespesaResumo = {
+  id: string;
+  valor: number;
+  data_vencimento: string;
+  tipo_servico: string | null;
+  plano_conta_id: string;
+  pagamento_metodo: string | null;
+  created_at: string;
+};
+
+const currencyFormatter = new Intl.NumberFormat("pt-BR", {
+  style: "currency",
+  currency: "BRL",
+});
+
+const formatMetodo = (value: string | null) => {
+  if (!value) return "-";
+  if (value === "dinheiro") return "Dinheiro";
+  if (value === "pix") return "Pix";
+  if (value === "cartao") return "Cartão";
+  if (value === "cheque") return "Cheque";
+  return String(value);
+};
+
 export default function PropriedadesLavouras() {
   const { user, selectedCompany } = useAuth();
 
@@ -38,6 +68,14 @@ export default function PropriedadesLavouras() {
   const [colheitasSafra, setColheitasSafra] = useState<ColheitaResumo[]>([]);
   const [kgPorBalaioConfig, setKgPorBalaioConfig] = useState<number>(15);
   const [kgPorLitroConfig, setKgPorLitroConfig] = useState<number>(1);
+
+  const [planosContas, setPlanosContas] = useState<PlanoContaResumo[]>([]);
+
+  const [lavouraDetalhesOpen, setLavouraDetalhesOpen] = useState(false);
+  const [lavouraDetalhesTarget, setLavouraDetalhesTarget] = useState<Tables<"lavouras"> | null>(null);
+  const [lavouraDetalhesPropriedade, setLavouraDetalhesPropriedade] = useState<Tables<"propriedades"> | null>(null);
+  const [loadingDespesasLavoura, setLoadingDespesasLavoura] = useState(false);
+  const [despesasLavoura, setDespesasLavoura] = useState<DespesaResumo[]>([]);
 
   const [propriedadeModalOpen, setPropriedadeModalOpen] = useState(false);
   const [propriedadeEditing, setPropriedadeEditing] = useState<Tables<"propriedades"> | null>(null);
@@ -61,6 +99,12 @@ export default function PropriedadesLavouras() {
     });
     return map;
   }, [lavouras]);
+
+  const planosById = useMemo(() => {
+    const map = new Map<string, PlanoContaResumo>();
+    (planosContas ?? []).forEach((p) => map.set(p.id, p));
+    return map;
+  }, [planosContas]);
 
   const resetPropriedadeForm = () => {
     setPropriedadeEditing(null);
@@ -286,9 +330,32 @@ export default function PropriedadesLavouras() {
     }
   };
 
+  const loadPlanosContas = async () => {
+    if (!user || !selectedCompany) {
+      setPlanosContas([]);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from("planos_contas")
+        .select("id, nome")
+        .eq("empresa_id", selectedCompany.id)
+        .order("nome", { ascending: true });
+
+      if (error) throw error;
+
+      setPlanosContas((data ?? []) as unknown as PlanoContaResumo[]);
+    } catch (error) {
+      console.error("Erro ao carregar planos de contas:", error);
+      setPlanosContas([]);
+    }
+  };
+
   useEffect(() => {
     loadPropriedades();
     loadLavouras();
+    loadPlanosContas();
     loadSafras();
     loadConversoes();
   }, [user, selectedCompany?.id]);
@@ -390,6 +457,68 @@ export default function PropriedadesLavouras() {
     setLavQuantidade(qtd);
     setLavouraModalOpen(true);
   };
+
+  const openLavouraDetalhes = (propriedade: Tables<"propriedades">, item: Tables<"lavouras">) => {
+    setLavouraDetalhesPropriedade(propriedade);
+    setLavouraDetalhesTarget(item);
+    setLavouraDetalhesOpen(true);
+  };
+
+  useEffect(() => {
+    if (!lavouraDetalhesOpen || !selectedCompany || !lavouraDetalhesTarget) {
+      setLoadingDespesasLavoura(false);
+      setDespesasLavoura([]);
+      return;
+    }
+
+    let cancelled = false;
+    const lavouraId = lavouraDetalhesTarget.id;
+    const start = `${selectedSafra}-01-01`;
+    const end = `${selectedSafra}-12-31`;
+
+    setLoadingDespesasLavoura(true);
+    setDespesasLavoura([]);
+
+    void (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("despesas")
+          .select("id, valor, data_vencimento, tipo_servico, plano_conta_id, pagamento_metodo, created_at")
+          .eq("empresa_id", selectedCompany.id)
+          .eq("lavoura_id", lavouraId)
+          .gte("data_vencimento", start)
+          .lte("data_vencimento", end)
+          .order("data_vencimento", { ascending: false })
+          .order("created_at", { ascending: false });
+
+        if (error) throw error;
+        if (cancelled) return;
+
+        setDespesasLavoura((data ?? []) as unknown as DespesaResumo[]);
+      } catch (error) {
+        if (cancelled) return;
+
+        console.error("Erro ao carregar despesas da lavoura:", error);
+        const message = (error as { message?: string }).message?.toLowerCase?.() ?? "";
+        const code = (error as { code?: string }).code;
+        if (code === "42703" || message.includes("column") || message.includes("does not exist")) {
+          toast({
+            title: "Banco sem suporte a despesas por lavoura",
+            description: "Aplique a migration que adiciona lavoura_id/propriedade_id em despesas.",
+            variant: "destructive",
+          });
+        }
+
+        setDespesasLavoura([]);
+      } finally {
+        if (!cancelled) setLoadingDespesasLavoura(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [lavouraDetalhesOpen, lavouraDetalhesTarget?.id, selectedCompany?.id, selectedSafra]);
 
   const saveLavoura = async () => {
     if (!user || !selectedCompany) {
@@ -600,17 +729,53 @@ export default function PropriedadesLavouras() {
     return `${v.toFixed(4)} balaios/pé`;
   };
 
-  const formatLitros = (kg: number) => {
-    if (!kgPorLitroConfig) return "—";
-    const v = kg / kgPorLitroConfig;
+  const formatLitros = (balaios: number) => {
+    const v = (Number.isFinite(balaios) ? balaios : 0) * 60;
     return v.toFixed(2);
   };
 
-  const formatLitrosPorPe = (kg: number, pes: number) => {
-    if (!pes || !kgPorLitroConfig) return "—";
-    const v = (kg / kgPorLitroConfig) / pes;
+  const formatLitrosPorPe = (balaios: number, pes: number) => {
+    if (!pes) return "—";
+    const v = ((Number.isFinite(balaios) ? balaios : 0) * 60) / pes;
     return `${v.toFixed(4)} L/pé`;
   };
+
+  const getBalaiosFromColheita = (c: ColheitaResumo) => {
+    const fromField = c.quantidade_balaios;
+    const fallback = kgPorBalaioConfig ? (Number(c.peso_kg) || 0) / kgPorBalaioConfig : 0;
+    return fromField != null ? Number(fromField) || 0 : fallback;
+  };
+
+  const colheitasDetalheLavoura = useMemo(() => {
+    if (!lavouraDetalhesTarget) return [];
+    const id = lavouraDetalhesTarget.id;
+    return (colheitasSafra ?? [])
+      .filter((c) => c.lavoura_id === id)
+      .slice()
+      .sort((a, b) => b.data_colheita.localeCompare(a.data_colheita));
+  }, [colheitasSafra, lavouraDetalhesTarget?.id]);
+
+  const resumoDetalheLavoura = useMemo(() => {
+    const pesLav = Number(lavouraDetalhesTarget?.quantidade_pe_de_cafe) || 0;
+    let totalKg = 0;
+    let totalBalaios = 0;
+
+    colheitasDetalheLavoura.forEach((c) => {
+      totalKg += Number(c.peso_kg) || 0;
+      totalBalaios += getBalaiosFromColheita(c);
+    });
+
+    return {
+      pesLav,
+      totalKg,
+      totalBalaios,
+      totalLitros: totalBalaios * 60,
+    };
+  }, [colheitasDetalheLavoura, kgPorBalaioConfig, lavouraDetalhesTarget?.quantidade_pe_de_cafe]);
+
+  const totalDespesasDetalheLavoura = useMemo(() => {
+    return (despesasLavoura ?? []).reduce((sum, d) => sum + (Number(d.valor) || 0), 0);
+  }, [despesasLavoura]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -663,11 +828,13 @@ export default function PropriedadesLavouras() {
             <CardHeader className="space-y-2">
               <CardTitle>Produção por safra</CardTitle>
               <CardDescription>
-                {loadingProducao ? "Carregando produção..." : `Médias calculadas pela soma de lançamentos da safra ${selectedSafra}`}
+                {loadingProducao
+                  ? "Carregando produção..."
+                  : `Soma de lançamentos da safra ${selectedSafra}. Litros calculados por 60L/balaio.`}
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3 sm:hidden">
+              <Accordion type="multiple" className="w-full space-y-3">
                 {propriedadesFiltradas.map((propriedade) => {
                   const propAtivo = (propriedade as unknown as { ativo?: boolean }).ativo !== false;
                   const sub = lavourasPorPropriedadeFiltradas.get(propriedade.id) ?? [];
@@ -677,178 +844,72 @@ export default function PropriedadesLavouras() {
                   const pesProp = pesPorPropriedade.get(propriedade.id) ?? 0;
 
                   return (
-                    <div key={propriedade.id} className="rounded-2xl border border-slate-100 bg-white p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
+                    <AccordionItem
+                      key={propriedade.id}
+                      value={propriedade.id}
+                      className="rounded-2xl border border-slate-100 bg-white px-3"
+                    >
+                      <AccordionTrigger className="py-3 hover:no-underline">
+                        <div className="min-w-0 flex-1 text-left">
                           <p className="min-w-0 truncate text-sm font-semibold">
                             {propriedade.nome ?? "(sem nome)"} {!propAtivo ? "(inativo)" : ""}
                           </p>
                           <p className="mt-0.5 min-w-0 truncate text-xs text-muted-foreground">{propriedade.endereco ?? "—"}</p>
-                        </div>
-                      </div>
 
-                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                        <div className="rounded-xl bg-slate-50 px-3 py-2">
-                          <p className="text-muted-foreground">Pés</p>
-                          <p className="font-medium leading-none">{pesProp}</p>
-                        </div>
-                        <div className="rounded-xl bg-slate-50 px-3 py-2">
-                          <p className="text-muted-foreground">Produção</p>
-                          <p className="font-medium leading-none truncate">{formatKg(totalKgProp)}</p>
-                        </div>
-                        <div className="rounded-xl bg-slate-50 px-3 py-2">
-                          <p className="text-muted-foreground">kg/pé</p>
-                          <p className="font-medium leading-none truncate">{formatKgPorPe(totalKgProp, pesProp)}</p>
-                        </div>
-                        <div className="rounded-xl bg-slate-50 px-3 py-2">
-                          <p className="text-muted-foreground">Balaios</p>
-                          <p className="font-medium leading-none truncate">{formatBalaios(totalBalaiosProp)}</p>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <Button type="button" variant="ghost" size="sm" onClick={() => openEditPropriedade(propriedade)}>
-                          Editar
-                        </Button>
-                        <Button
-                          type="button"
-                          variant={propAtivo ? "outline" : "default"}
-                          size="sm"
-                          onClick={() => togglePropriedadeAtivo(propriedade)}
-                        >
-                          {propAtivo ? "Inativar" : "Ativar"}
-                        </Button>
-                        <Button type="button" size="sm" onClick={() => openCreateLavoura(propriedade)}>
-                          Cadastrar lavoura
-                        </Button>
-                      </div>
-
-                      <div className="mt-4 space-y-2">
-                        <p className="text-xs font-medium text-muted-foreground">Lavouras</p>
-                        {loadingLavouras ? (
-                          <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3 text-center text-xs text-muted-foreground">
-                            Carregando lavouras...
+                          <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3 lg:grid-cols-5">
+                            <div className="rounded-xl bg-slate-50 px-3 py-2">
+                              <p className="text-muted-foreground">Pés</p>
+                              <p className="font-medium leading-none">{pesProp}</p>
+                            </div>
+                            <div className="rounded-xl bg-slate-50 px-3 py-2">
+                              <p className="text-muted-foreground">Produção</p>
+                              <p className="font-medium leading-none truncate">{formatKg(totalKgProp)}</p>
+                            </div>
+                            <div className="rounded-xl bg-slate-50 px-3 py-2">
+                              <p className="text-muted-foreground">Balaios</p>
+                              <p className="font-medium leading-none truncate">{formatBalaios(totalBalaiosProp)}</p>
+                            </div>
+                            <div className="rounded-xl bg-slate-50 px-3 py-2">
+                              <p className="text-muted-foreground">Litros (60L)</p>
+                              <p className="font-medium leading-none truncate">{formatLitros(totalBalaiosProp)}</p>
+                            </div>
+                            <div className="rounded-xl bg-slate-50 px-3 py-2">
+                              <p className="text-muted-foreground">Litros/pé (média)</p>
+                              <p className="font-medium leading-none truncate">{formatLitrosPorPe(totalBalaiosProp, pesProp)}</p>
+                            </div>
                           </div>
-                        ) : sub.length === 0 ? (
-                          <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3 text-center text-xs text-muted-foreground">
-                            Nenhuma lavoura cadastrada
-                          </div>
-                        ) : (
-                          sub.map((lavoura) => {
-                            const lavAtivo = (lavoura as unknown as { ativo?: boolean }).ativo !== false;
-                            const totalKgLav = producaoPorLavoura.get(lavoura.id) ?? 0;
-                            const totalBalaiosLav = balaiosPorLavoura.get(lavoura.id) ?? 0;
-                            const pesLav = Number(lavoura.quantidade_pe_de_cafe) || 0;
+                        </div>
+                      </AccordionTrigger>
 
-                            return (
-                              <div key={lavoura.id} className="rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2">
-                                <div className="flex flex-wrap items-start justify-between gap-2">
-                                  <div className="min-w-0">
-                                    <p className="min-w-0 truncate text-sm font-medium">
-                                      {lavoura.nome} {!lavAtivo ? "(inativo)" : ""}
-                                    </p>
-                                    <p className="mt-0.5 text-xs text-muted-foreground">
-                                      {pesLav} pés • {formatKg(totalKgLav)} • {formatBalaios(totalBalaiosLav)} balaios
-                                    </p>
-                                  </div>
-                                  <div className="flex flex-wrap gap-2">
-                                    <Button type="button" variant="ghost" size="sm" onClick={() => openEditLavoura(propriedade, lavoura)}>
-                                      Editar
-                                    </Button>
-                                    <Button
-                                      type="button"
-                                      variant={lavAtivo ? "outline" : "default"}
-                                      size="sm"
-                                      onClick={() => toggleLavouraAtivo(lavoura)}
-                                    >
-                                      {lavAtivo ? "Inativar" : "Ativar"}
-                                    </Button>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                      <AccordionContent className="pt-0">
+                        <div className="mb-3 flex flex-wrap gap-2">
+                          <Button type="button" variant="ghost" size="sm" onClick={() => openEditPropriedade(propriedade)}>
+                            Editar
+                          </Button>
+                          <Button
+                            type="button"
+                            variant={propAtivo ? "outline" : "default"}
+                            size="sm"
+                            onClick={() => togglePropriedadeAtivo(propriedade)}
+                          >
+                            {propAtivo ? "Inativar" : "Ativar"}
+                          </Button>
+                          <Button type="button" size="sm" onClick={() => openCreateLavoura(propriedade)}>
+                            Cadastrar lavoura
+                          </Button>
+                        </div>
 
-              <div className="hidden overflow-x-auto rounded-2xl border border-slate-100 sm:block">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-slate-50/80">
-                      <TableHead>Propriedade / Lavoura</TableHead>
-                      <TableHead>Qtd. pés</TableHead>
-                      <TableHead>Produção (kg)</TableHead>
-                      <TableHead>kg/pé</TableHead>
-                      <TableHead>Balaios</TableHead>
-                      <TableHead>balaios/pé</TableHead>
-                      <TableHead>Litros</TableHead>
-                      <TableHead>L/pé</TableHead>
-                      <TableHead className="text-right">Ações</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {propriedadesFiltradas.map((propriedade) => {
-                      const propAtivo = (propriedade as unknown as { ativo?: boolean }).ativo !== false;
-                      const sub = lavourasPorPropriedadeFiltradas.get(propriedade.id) ?? [];
-
-                      const totalKgProp = producaoPorPropriedade.get(propriedade.id) ?? 0;
-                      const totalBalaiosProp = balaiosPorPropriedade.get(propriedade.id) ?? 0;
-                      const pesProp = pesPorPropriedade.get(propriedade.id) ?? 0;
-
-                      return (
-                        <>
-                          <TableRow key={propriedade.id} className="bg-muted/40">
-                            <TableCell className="font-semibold">
-                              <div className="flex flex-col">
-                                <span>
-                                  {propriedade.nome ?? "(sem nome)"} {!propAtivo ? "(inativo)" : ""}
-                                </span>
-                                <span className="text-xs text-muted-foreground">{propriedade.endereco ?? "—"}</span>
-                              </div>
-                            </TableCell>
-                            <TableCell className="font-semibold">{pesProp}</TableCell>
-                            <TableCell className="font-semibold">{formatKg(totalKgProp)}</TableCell>
-                            <TableCell className="font-semibold">{formatKgPorPe(totalKgProp, pesProp)}</TableCell>
-                            <TableCell className="font-semibold">{formatBalaios(totalBalaiosProp)}</TableCell>
-                            <TableCell className="font-semibold">{formatBalaiosPorPe(totalBalaiosProp, pesProp)}</TableCell>
-                            <TableCell className="font-semibold">{formatLitros(totalKgProp)}</TableCell>
-                            <TableCell className="font-semibold">{formatLitrosPorPe(totalKgProp, pesProp)}</TableCell>
-                            <TableCell className="text-right">
-                              <Button type="button" variant="ghost" size="sm" onClick={() => openEditPropriedade(propriedade)}>
-                                Editar
-                              </Button>
-                              <Button
-                                type="button"
-                                variant={propAtivo ? "outline" : "default"}
-                                size="sm"
-                                className="ml-2"
-                                onClick={() => togglePropriedadeAtivo(propriedade)}
-                              >
-                                {propAtivo ? "Inativar" : "Ativar"}
-                              </Button>
-                              <Button type="button" size="sm" className="ml-2" onClick={() => openCreateLavoura(propriedade)}>
-                                Cadastrar lavoura
-                              </Button>
-                            </TableCell>
-                          </TableRow>
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium text-muted-foreground">Lavouras</p>
 
                           {loadingLavouras ? (
-                            <TableRow key={`${propriedade.id}-loading`}
-                            >
-                              <TableCell colSpan={9} className="py-6 text-center text-sm text-muted-foreground">
-                                Carregando lavouras...
-                              </TableCell>
-                            </TableRow>
+                            <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3 text-center text-xs text-muted-foreground">
+                              Carregando lavouras...
+                            </div>
                           ) : sub.length === 0 ? (
-                            <TableRow key={`${propriedade.id}-empty`}>
-                              <TableCell colSpan={9} className="py-6 text-center text-sm text-muted-foreground">
-                                Nenhuma lavoura cadastrada
-                              </TableCell>
-                            </TableRow>
+                            <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3 text-center text-xs text-muted-foreground">
+                              Nenhuma lavoura cadastrada
+                            </div>
                           ) : (
                             sub.map((lavoura) => {
                               const lavAtivo = (lavoura as unknown as { ativo?: boolean }).ativo !== false;
@@ -857,46 +918,64 @@ export default function PropriedadesLavouras() {
                               const pesLav = Number(lavoura.quantidade_pe_de_cafe) || 0;
 
                               return (
-                                <TableRow key={lavoura.id}>
-                                  <TableCell className="pl-8">
-                                    <span className="font-medium">{lavoura.nome}</span> {!lavAtivo ? "(inativo)" : ""}
-                                  </TableCell>
-                                  <TableCell>{pesLav}</TableCell>
-                                  <TableCell>{formatKg(totalKgLav)}</TableCell>
-                                  <TableCell>{formatKgPorPe(totalKgLav, pesLav)}</TableCell>
-                                  <TableCell>{formatBalaios(totalBalaiosLav)}</TableCell>
-                                  <TableCell>{formatBalaiosPorPe(totalBalaiosLav, pesLav)}</TableCell>
-                                  <TableCell>{formatLitros(totalKgLav)}</TableCell>
-                                  <TableCell>{formatLitrosPorPe(totalKgLav, pesLav)}</TableCell>
-                                  <TableCell className="text-right">
-                                    <Button
+                                <div key={lavoura.id} className="rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2">
+                                  <div className="flex flex-wrap items-start justify-between gap-2">
+                                    <button
                                       type="button"
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => openEditLavoura(propriedade, lavoura)}
+                                      className="min-w-0 flex-1 text-left"
+                                      onClick={() => openLavouraDetalhes(propriedade, lavoura)}
                                     >
-                                      Editar
-                                    </Button>
-                                    <Button
-                                      type="button"
-                                      variant={lavAtivo ? "outline" : "default"}
-                                      size="sm"
-                                      className="ml-2"
-                                      onClick={() => toggleLavouraAtivo(lavoura)}
-                                    >
-                                      {lavAtivo ? "Inativar" : "Ativar"}
-                                    </Button>
-                                  </TableCell>
-                                </TableRow>
+                                      <p className="min-w-0 truncate text-sm font-medium">
+                                        {lavoura.nome} {!lavAtivo ? "(inativo)" : ""}
+                                      </p>
+
+                                      <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-3 lg:grid-cols-5">
+                                        <div className="rounded-lg bg-white px-2.5 py-1.5">
+                                          <p className="text-muted-foreground">Pés</p>
+                                          <p className="font-medium leading-none">{pesLav}</p>
+                                        </div>
+                                        <div className="rounded-lg bg-white px-2.5 py-1.5">
+                                          <p className="text-muted-foreground">Produção</p>
+                                          <p className="font-medium leading-none truncate">{formatKg(totalKgLav)}</p>
+                                        </div>
+                                        <div className="rounded-lg bg-white px-2.5 py-1.5">
+                                          <p className="text-muted-foreground">Balaios</p>
+                                          <p className="font-medium leading-none truncate">{formatBalaios(totalBalaiosLav)}</p>
+                                        </div>
+                                        <div className="rounded-lg bg-white px-2.5 py-1.5">
+                                          <p className="text-muted-foreground">Litros (60L)</p>
+                                          <p className="font-medium leading-none truncate">{formatLitros(totalBalaiosLav)}</p>
+                                        </div>
+                                        <div className="rounded-lg bg-white px-2.5 py-1.5">
+                                          <p className="text-muted-foreground">Litros/pé</p>
+                                          <p className="font-medium leading-none truncate">{formatLitrosPorPe(totalBalaiosLav, pesLav)}</p>
+                                        </div>
+                                      </div>
+                                    </button>
+                                    <div className="flex flex-wrap gap-2">
+                                      <Button type="button" variant="ghost" size="sm" onClick={() => openEditLavoura(propriedade, lavoura)}>
+                                        Editar
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        variant={lavAtivo ? "outline" : "default"}
+                                        size="sm"
+                                        onClick={() => toggleLavouraAtivo(lavoura)}
+                                      >
+                                        {lavAtivo ? "Inativar" : "Ativar"}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </div>
                               );
                             })
                           )}
-                        </>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  );
+                })}
+              </Accordion>
             </CardContent>
           </Card>
         )}

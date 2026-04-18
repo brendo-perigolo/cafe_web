@@ -96,6 +96,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [authInitialized, setAuthInitialized] = useState(false);
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
   const [companies, setCompanies] = useState<Tables<"empresas">[]>([]);
   const [companiesLoading, setCompaniesLoading] = useState(false);
   const [companyReady, setCompanyReady] = useState(false);
@@ -112,6 +113,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   });
   const navigate = useNavigate();
   const location = useLocation();
+
+  useEffect(() => {
+    const handler = () => setIsOnline(navigator.onLine);
+    window.addEventListener("online", handler);
+    window.addEventListener("offline", handler);
+    return () => {
+      window.removeEventListener("online", handler);
+      window.removeEventListener("offline", handler);
+    };
+  }, []);
 
   useEffect(() => {
     // Guarda a última rota visitada (para voltar após reload)
@@ -295,24 +306,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     let cancelled = false;
 
+    // Offline-first: hydrate immediately from localStorage so the app can open even without internet.
+    const cachedAtStart = readCachedSupabaseSession();
+    if (cachedAtStart?.user) {
+      setSession(cachedAtStart);
+      setUser(cachedAtStart.user ?? null);
+    }
+
     // Check existing session (must never leave the app stuck in loading on offline/edge cases)
     (async () => {
       try {
         const offline = !navigator.onLine;
-
-        // When offline, Supabase token refresh/network calls can hang.
-        // Hydrate from localStorage after a short grace period.
-        let hydrated = false;
-        const offlineHydrateTimer = offline
-          ? window.setTimeout(() => {
-              if (hydrated) return;
-              const cached = readCachedSupabaseSession();
-              if (!cached) return;
-              setSession(cached);
-              setUser(cached.user ?? null);
-              hydrated = true;
-            }, 600)
-          : undefined;
+        const cached = cachedAtStart ?? readCachedSupabaseSession();
 
         const { data: { session } } = await withTimeout(
           supabase.auth.getSession(),
@@ -320,13 +325,23 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           "supabase.auth.getSession",
         );
 
-        hydrated = true;
-        if (offlineHydrateTimer != null) {
-          window.clearTimeout(offlineHydrateTimer);
-        }
         if (cancelled) return;
-        setSession(session);
-        setUser(session?.user ?? null);
+
+        if (session?.user) {
+          setSession(session);
+          setUser(session.user);
+          return;
+        }
+
+        // If we are offline, keep the cached session (if any) to avoid locking users out in the field.
+        if (offline && cached?.user) {
+          setSession(cached);
+          setUser(cached.user);
+          return;
+        }
+
+        setSession(null);
+        setUser(null);
       } catch (error) {
         console.warn("Falha ao recuperar sessão do Supabase (seguindo sem sessão):", error);
 
@@ -393,6 +408,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     if (!user) return;
     if (getKeepConnectedPreference()) return;
+    // Offline: never auto-logout, otherwise the user can't log back in without internet.
+    if (!isOnline) return;
 
     let timeoutId: number | undefined;
 
@@ -402,6 +419,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
 
       timeoutId = window.setTimeout(() => {
+        if (!navigator.onLine) {
+          // Don't sign out while offline.
+          return;
+        }
         // Best-effort sign out on inactivity
         supabase.auth
           .signOut()
@@ -436,7 +457,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
       events.forEach((eventName) => window.removeEventListener(eventName, handleActivity));
     };
-  }, [user, navigate]);
+  }, [user, navigate, isOnline]);
 
   const signIn = async (email: string, password: string) => {
     try {
@@ -545,6 +566,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const signOut = async () => {
+    if (!navigator.onLine) {
+      toast({
+        title: "Sem conexão",
+        description: "Para evitar ficar sem acesso no modo offline, conecte-se à internet antes de sair do sistema.",
+      });
+      return;
+    }
     await supabase.auth.signOut();
     clearEncryptedLoginState();
     resetCompanies();

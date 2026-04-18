@@ -29,6 +29,17 @@ interface PlanoContaRow {
   nome: string;
 }
 
+interface PropriedadeRow {
+  id: string;
+  nome: string | null;
+}
+
+interface LavouraRow {
+  id: string;
+  nome: string;
+  propriedade_id: string;
+}
+
 interface DespesaRow {
   id: string;
   valor: number;
@@ -37,6 +48,8 @@ interface DespesaRow {
   plano_conta_id: string;
   pagamento_metodo: string | null;
   colheita_id: string | null;
+  propriedade_id: string | null;
+  lavoura_id: string | null;
   created_at: string;
 }
 
@@ -64,6 +77,8 @@ export default function Despesas() {
   const [loading, setLoading] = useState(true);
   const [despesas, setDespesas] = useState<DespesaRow[]>([]);
   const [planos, setPlanos] = useState<PlanoContaRow[]>([]);
+  const [propriedades, setPropriedades] = useState<PropriedadeRow[]>([]);
+  const [lavouras, setLavouras] = useState<LavouraRow[]>([]);
 
   const [editOpen, setEditOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<DespesaRow | null>(null);
@@ -73,11 +88,20 @@ export default function Despesas() {
     tipoServico: "",
     planoContaId: "",
     pagamentoMetodo: "dinheiro" as PagamentoMetodo,
+    propriedadeId: "",
+    lavouraId: "",
   });
   const [saving, setSaving] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<DespesaRow | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+
+  const [planoModalOpen, setPlanoModalOpen] = useState(false);
+  const [planoEditing, setPlanoEditing] = useState<PlanoContaRow | null>(null);
+  const [planoNome, setPlanoNome] = useState("");
+  const [planoSaving, setPlanoSaving] = useState(false);
+
+  const [filterText, setFilterText] = useState("");
 
   const canLoad = Boolean(user && selectedCompany);
 
@@ -86,6 +110,24 @@ export default function Despesas() {
     planos.forEach((p) => map.set(p.id, p));
     return map;
   }, [planos]);
+
+  const lavourasById = useMemo(() => {
+    const map = new Map<string, LavouraRow>();
+    (lavouras ?? []).forEach((l) => map.set(l.id, l));
+    return map;
+  }, [lavouras]);
+
+  const propriedadesById = useMemo(() => {
+    const map = new Map<string, PropriedadeRow>();
+    (propriedades ?? []).forEach((p) => map.set(p.id, p));
+    return map;
+  }, [propriedades]);
+
+  const lavourasFiltradas = useMemo(() => {
+    const propId = form.propriedadeId;
+    if (!propId) return lavouras ?? [];
+    return (lavouras ?? []).filter((l) => l.propriedade_id === propId);
+  }, [lavouras, form.propriedadeId]);
 
   const gastosByPlano = useMemo(() => {
     const summary: Record<string, GastosResumo> = {};
@@ -113,17 +155,44 @@ export default function Despesas() {
 
   const totalDespesas = useMemo(() => (despesas ?? []).reduce((sum, it) => sum + (Number(it.valor) || 0), 0), [despesas]);
 
+  const despesasFiltradas = useMemo(() => {
+    const q = filterText.trim().toLowerCase();
+    if (!q) return despesas ?? [];
+
+    return (despesas ?? []).filter((d) => {
+      const planoNome = planosById.get(d.plano_conta_id)?.nome ?? "";
+      const propriedadeNome = d.propriedade_id ? propriedadesById.get(d.propriedade_id)?.nome ?? "" : "";
+      const lavouraNome = d.lavoura_id ? lavourasById.get(d.lavoura_id)?.nome ?? "" : "";
+
+      const haystack = [
+        d.data_vencimento,
+        planoNome,
+        d.tipo_servico ?? "",
+        formatMetodo(d.pagamento_metodo),
+        propriedadeNome ?? "",
+        lavouraNome,
+        String(d.valor ?? ""),
+      ]
+        .join(" | ")
+        .toLowerCase();
+
+      return haystack.includes(q);
+    });
+  }, [despesas, filterText, planosById, propriedadesById, lavourasById]);
+
   const loadAll = async () => {
     if (!canLoad || !selectedCompany) {
       setPlanos([]);
       setDespesas([]);
+      setPropriedades([]);
+      setLavouras([]);
       setLoading(false);
       return;
     }
 
     setLoading(true);
     try {
-      const [planosRes, despesasRes] = await Promise.all([
+      const [planosRes, despesasRes, propriedadesRes, lavourasRes] = await Promise.all([
         supabase
           .from("planos_contas")
           .select("id, nome")
@@ -131,22 +200,40 @@ export default function Despesas() {
           .order("nome", { ascending: true }),
         supabase
           .from("despesas")
-          .select("id, valor, data_vencimento, tipo_servico, plano_conta_id, pagamento_metodo, colheita_id, created_at")
+          .select(
+            "id, valor, data_vencimento, tipo_servico, plano_conta_id, pagamento_metodo, colheita_id, propriedade_id, lavoura_id, created_at"
+          )
           .eq("empresa_id", selectedCompany.id)
           .order("data_vencimento", { ascending: false })
           .order("created_at", { ascending: false }),
+        supabase
+          .from("propriedades")
+          .select("id, nome")
+          .eq("empresa_id", selectedCompany.id)
+          .order("nome", { ascending: true }),
+        supabase
+          .from("lavouras")
+          .select("id, nome, propriedade_id")
+          .eq("empresa_id", selectedCompany.id)
+          .order("nome", { ascending: true }),
       ]);
 
       if (planosRes.error) throw planosRes.error;
       if (despesasRes.error) throw despesasRes.error;
+      if (propriedadesRes.error) throw propriedadesRes.error;
+      if (lavourasRes.error) throw lavourasRes.error;
 
       setPlanos((planosRes.data as unknown as PlanoContaRow[]) || []);
       setDespesas((despesasRes.data as unknown as DespesaRow[]) || []);
+      setPropriedades((propriedadesRes.data as unknown as PropriedadeRow[]) || []);
+      setLavouras((lavourasRes.data as unknown as LavouraRow[]) || []);
     } catch (error) {
       console.error("Erro ao carregar despesas:", error);
       toast({ title: "Erro", description: "Não foi possível carregar as despesas.", variant: "destructive" });
       setPlanos([]);
       setDespesas([]);
+      setPropriedades([]);
+      setLavouras([]);
     } finally {
       setLoading(false);
     }
@@ -165,22 +252,116 @@ export default function Despesas() {
       valor: "",
       dataVencimento: isoDate,
       tipoServico: "",
-      planoContaId: planos[0]?.id ?? "",
+      planoContaId: "",
       pagamentoMetodo: "dinheiro",
+      propriedadeId: "",
+      lavouraId: "",
     });
     setEditOpen(true);
   };
 
   const openEdit = (row: DespesaRow) => {
     setEditTarget(row);
+    const lavouraId = row.lavoura_id ?? "";
+    const propriedadeDerivada = lavouraId ? lavourasById.get(lavouraId)?.propriedade_id ?? "" : "";
+
     setForm({
       valor: row.valor != null ? String(row.valor) : "",
       dataVencimento: row.data_vencimento,
       tipoServico: row.tipo_servico ?? "",
       planoContaId: row.plano_conta_id,
       pagamentoMetodo: (row.pagamento_metodo as PagamentoMetodo) || "dinheiro",
+      propriedadeId: row.propriedade_id ?? propriedadeDerivada,
+      lavouraId,
     });
     setEditOpen(true);
+  };
+
+  const resetPlanoForm = () => {
+    setPlanoEditing(null);
+    setPlanoNome("");
+  };
+
+  const openPlanoCreate = () => {
+    resetPlanoForm();
+    setPlanoModalOpen(true);
+  };
+
+  const openPlanoEdit = () => {
+    const planoId = form.planoContaId;
+    if (!planoId) {
+      openPlanoCreate();
+      return;
+    }
+
+    const target = planosById.get(planoId);
+    if (!target) {
+      openPlanoCreate();
+      return;
+    }
+
+    setPlanoEditing(target);
+    setPlanoNome(target.nome);
+    setPlanoModalOpen(true);
+  };
+
+  const handleSavePlano = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !selectedCompany) return;
+
+    const nome = planoNome.trim();
+    if (!nome) {
+      toast({ title: "Nome obrigatório", description: "Informe o nome do plano de contas.", variant: "destructive" });
+      return;
+    }
+
+    setPlanoSaving(true);
+    try {
+      if (planoEditing) {
+        const { error } = await supabase
+          .from("planos_contas")
+          .update({ nome, updated_at: new Date().toISOString() })
+          .eq("id", planoEditing.id)
+          .eq("empresa_id", selectedCompany.id);
+
+        if (error) throw error;
+
+        setPlanos((prev) =>
+          [...(prev ?? [])]
+            .map((p) => (p.id === planoEditing.id ? { ...p, nome } : p))
+            .sort((a, b) => a.nome.localeCompare(b.nome))
+        );
+
+        toast({ title: "Plano atualizado", description: "Alteração salva com sucesso." });
+      } else {
+        const { data, error } = await supabase
+          .from("planos_contas")
+          .insert({ empresa_id: selectedCompany.id, nome })
+          .select("id, nome")
+          .single();
+
+        if (error) throw error;
+
+        const created = data as unknown as PlanoContaRow;
+        setPlanos((prev) => [...(prev ?? []), created].sort((a, b) => a.nome.localeCompare(b.nome)));
+        setForm((p) => ({ ...p, planoContaId: created.id }));
+
+        toast({ title: "Plano cadastrado", description: "Plano de contas incluído." });
+      }
+
+      setPlanoModalOpen(false);
+      resetPlanoForm();
+    } catch (error) {
+      console.error("Erro ao salvar plano de contas:", error);
+      const code = (error as { code?: string }).code;
+      if (code === "23505") {
+        toast({ title: "Plano já existe", description: "Já existe um plano com este nome.", variant: "destructive" });
+      } else {
+        toast({ title: "Erro ao salvar", description: "Tente novamente.", variant: "destructive" });
+      }
+    } finally {
+      setPlanoSaving(false);
+    }
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -205,6 +386,24 @@ export default function Despesas() {
       return;
     }
 
+    let propriedadeId = form.propriedadeId.trim() ? form.propriedadeId.trim() : null;
+    let lavouraId = form.lavouraId.trim() ? form.lavouraId.trim() : null;
+
+    if (lavouraId) {
+      const lav = lavourasById.get(lavouraId);
+      if (lav) {
+        if (!propriedadeId) propriedadeId = lav.propriedade_id;
+        if (propriedadeId && lav.propriedade_id !== propriedadeId) {
+          toast({
+            title: "Lavoura inválida",
+            description: "A lavoura selecionada não pertence à propriedade informada.",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+    }
+
     setSaving(true);
     try {
       if (editTarget) {
@@ -216,6 +415,8 @@ export default function Despesas() {
             tipo_servico: form.tipoServico.trim() ? form.tipoServico.trim() : null,
             plano_conta_id: planoContaId,
             pagamento_metodo: form.pagamentoMetodo,
+            propriedade_id: propriedadeId,
+            lavoura_id: lavouraId,
             updated_at: new Date().toISOString(),
           })
           .eq("id", editTarget.id)
@@ -232,6 +433,8 @@ export default function Despesas() {
           tipo_servico: form.tipoServico.trim() ? form.tipoServico.trim() : null,
           plano_conta_id: planoContaId,
           pagamento_metodo: form.pagamentoMetodo,
+          propriedade_id: propriedadeId,
+          lavoura_id: lavouraId,
         });
 
         if (error) throw error;
@@ -323,7 +526,24 @@ export default function Despesas() {
 
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Despesas registradas</CardTitle>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <CardTitle className="text-base">Despesas registradas</CardTitle>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="search"
+                  value={filterText}
+                  onChange={(e) => setFilterText(e.target.value)}
+                  placeholder="Filtrar por plano, serviço, vencimento..."
+                  className="h-9 w-full sm:w-[280px]"
+                />
+                {filterText.trim() ? (
+                  <Button type="button" variant="outline" className="h-9" onClick={() => setFilterText("")}
+                  >
+                    Limpar
+                  </Button>
+                ) : null}
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             {!selectedCompany ? (
@@ -332,45 +552,55 @@ export default function Despesas() {
               <p className="text-sm text-muted-foreground">Carregando...</p>
             ) : despesas.length === 0 ? (
               <p className="text-sm text-muted-foreground">Nenhuma despesa registrada.</p>
+            ) : despesasFiltradas.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nenhum resultado para o filtro informado.</p>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Vencimento</TableHead>
-                    <TableHead>Plano</TableHead>
-                    <TableHead>Serviço</TableHead>
-                    <TableHead>Método</TableHead>
-                    <TableHead className="text-right">Valor</TableHead>
-                    <TableHead className="w-[140px] text-right">Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {despesas.map((d) => (
-                    <TableRow key={d.id}>
-                      <TableCell className="whitespace-nowrap">{d.data_vencimento}</TableCell>
-                      <TableCell className="font-medium">{planosById.get(d.plano_conta_id)?.nome ?? "(plano)"}</TableCell>
-                      <TableCell>{d.tipo_servico ?? "-"}</TableCell>
-                      <TableCell>{formatMetodo(d.pagamento_metodo)}</TableCell>
-                      <TableCell className="text-right">{currencyFormatter.format(d.valor ?? 0)}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="inline-flex items-center gap-2">
-                          <Button variant="outline" size="icon" onClick={() => openEdit(d)} aria-label="Editar">
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="destructive"
-                            size="icon"
-                            onClick={() => setDeleteTarget(d)}
-                            aria-label="Excluir"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
+              <>
+                {filterText.trim() ? (
+                  <p className="mb-2 text-xs text-muted-foreground">
+                    Mostrando {despesasFiltradas.length} de {despesas.length}
+                  </p>
+                ) : null}
+
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Vencimento</TableHead>
+                      <TableHead>Plano</TableHead>
+                      <TableHead>Serviço</TableHead>
+                      <TableHead>Método</TableHead>
+                      <TableHead className="text-right">Valor</TableHead>
+                      <TableHead className="w-[140px] text-right">Ações</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {despesasFiltradas.map((d) => (
+                      <TableRow key={d.id}>
+                        <TableCell className="whitespace-nowrap">{d.data_vencimento}</TableCell>
+                        <TableCell className="font-medium">{planosById.get(d.plano_conta_id)?.nome ?? "(plano)"}</TableCell>
+                        <TableCell>{d.tipo_servico ?? "-"}</TableCell>
+                        <TableCell>{formatMetodo(d.pagamento_metodo)}</TableCell>
+                        <TableCell className="text-right">{currencyFormatter.format(d.valor ?? 0)}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="inline-flex items-center gap-2">
+                            <Button variant="outline" size="icon" onClick={() => openEdit(d)} aria-label="Editar">
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="destructive"
+                              size="icon"
+                              onClick={() => setDeleteTarget(d)}
+                              aria-label="Excluir"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </>
             )}
           </CardContent>
         </Card>
@@ -408,18 +638,32 @@ export default function Despesas() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label>Plano de contas</Label>
-                  <Select value={form.planoContaId} onValueChange={(v) => setForm((p) => ({ ...p, planoContaId: v }))}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecionar" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {planos.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.nome}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="flex items-center gap-2">
+                    <Select value={form.planoContaId} onValueChange={(v) => setForm((p) => ({ ...p, planoContaId: v }))}>
+                      <SelectTrigger className="flex-1">
+                        <SelectValue placeholder="Selecionar" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {planos.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.nome}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => (form.planoContaId ? openPlanoEdit() : openPlanoCreate())}
+                      disabled={!selectedCompany || planoSaving}
+                      aria-label={form.planoContaId ? "Editar plano de contas" : "Cadastrar plano de contas"}
+                      title={form.planoContaId ? "Editar plano de contas" : "Cadastrar plano de contas"}
+                    >
+                      {form.planoContaId ? <Pencil className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                    </Button>
+                  </div>
                 </div>
 
                 <div className="space-y-2">
@@ -450,12 +694,108 @@ export default function Despesas() {
                 />
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label>Propriedade (opcional)</Label>
+                  <Select
+                    value={form.propriedadeId || undefined}
+                    onValueChange={(v) => {
+                      setForm((p) => {
+                        const nextPropId = v === "__none__" ? "" : v;
+                        const nextLavId = p.lavouraId && lavourasById.get(p.lavouraId)?.propriedade_id !== nextPropId ? "" : p.lavouraId;
+                        return { ...p, propriedadeId: nextPropId, lavouraId: nextLavId };
+                      });
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecionar" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Nenhuma</SelectItem>
+                      {propriedades.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.nome ?? "(sem nome)"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Lavoura (opcional)</Label>
+                  <Select
+                    value={form.lavouraId || undefined}
+                    onValueChange={(v) => {
+                      if (v === "__none__") {
+                        setForm((p) => ({ ...p, lavouraId: "" }));
+                        return;
+                      }
+
+                      const lav = lavourasById.get(v);
+                      setForm((p) => ({
+                        ...p,
+                        lavouraId: v,
+                        propriedadeId: lav?.propriedade_id ?? p.propriedadeId,
+                      }));
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecionar" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Nenhuma</SelectItem>
+                      {lavourasFiltradas.map((l) => (
+                        <SelectItem key={l.id} value={l.id}>
+                          {l.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>
                   Cancelar
                 </Button>
                 <Button type="submit" disabled={saving}>
                   {saving ? "Salvando..." : "Salvar"}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={planoModalOpen}
+          onOpenChange={(open) => {
+            setPlanoModalOpen(open);
+            if (!open) resetPlanoForm();
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{planoEditing ? "Editar plano de contas" : "Novo plano de contas"}</DialogTitle>
+              <DialogDescription>Informe o nome do plano de contas.</DialogDescription>
+            </DialogHeader>
+
+            <form onSubmit={handleSavePlano} className="space-y-4">
+              <div className="space-y-2">
+                <Label>Nome</Label>
+                <Input
+                  value={planoNome}
+                  onChange={(e) => setPlanoNome(e.target.value)}
+                  placeholder="Ex: Combustível"
+                  maxLength={80}
+                />
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setPlanoModalOpen(false)} disabled={planoSaving}>
+                  Cancelar
+                </Button>
+                <Button type="submit" disabled={planoSaving}>
+                  {planoSaving ? "Salvando..." : "Salvar"}
                 </Button>
               </div>
             </form>
