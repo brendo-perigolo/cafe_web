@@ -20,6 +20,7 @@ import { useOfflineSync } from "@/hooks/useOfflineSync";
 import { cacheKey, getPendingPanhadorOps, readJson, writeJson } from "@/lib/offline";
 import { getDeviceLancamentoSettings } from "@/lib/deviceSettings";
 import { isUuid, toUuidOrNull } from "@/lib/uuid";
+import { openPdfTicketFromPosText, shouldPreferPdfForTicket } from "@/lib/ticketPdf";
 import { z } from "zod";
 import {
   AlertDialog,
@@ -994,6 +995,20 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
       };
 
       const posText = buildPosText58();
+
+      // iOS (PWA) + OpenLabel: gerar/abrir PDF para impressão.
+      if (shouldPreferPdfForTicket()) {
+        try {
+          await openPdfTicketFromPosText({
+            title: "Comprovante",
+            filename: `comprovante-${(data.codigo ?? "SEM-CODIGO").replace(/[^a-zA-Z0-9_-]+/g, "-")}.pdf`,
+            text: posText,
+          });
+          return;
+        } catch {
+          // fallback continua para share/print
+        }
+      }
 
       // Android (RawBT): compartilhar texto costuma ser o caminho mais direto.
       // Se não houver suporte ao Share API, cai para impressão via navegador.

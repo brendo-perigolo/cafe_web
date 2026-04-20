@@ -38,6 +38,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
+import { openPdfTicketFromPosText, shouldPreferPdfForTicket } from "@/lib/ticketPdf";
 import { useOfflineSync } from "@/hooks/useOfflineSync";
 import { cn } from "@/lib/utils";
 import { cacheKey, getPendingColheitas, readJson, writeJson } from "@/lib/offline";
@@ -856,9 +857,25 @@ export default function Movimentacoes() {
     // iOS + impressora Bluetooth: o navegador não imprime direto via BT.
     // Tentamos primeiro compartilhar o texto (para abrir em app de impressão), e só depois caímos no print do navegador.
     void (async () => {
+      const posText = buildPosText58();
+
+      // iOS (PWA) + OpenLabel: gerar/abrir PDF para impressão.
+      if (shouldPreferPdfForTicket()) {
+        try {
+          await openPdfTicketFromPosText({
+            title: "Comprovante",
+            filename: `comprovante-${String(item.codigo ?? "SEM-CODIGO").replace(/[^a-zA-Z0-9_-]+/g, "-")}.pdf`,
+            text: posText,
+          });
+          return;
+        } catch {
+          // segue para share/print
+        }
+      }
+
       try {
         if (typeof navigator !== "undefined" && "share" in navigator && typeof navigator.share === "function") {
-          await navigator.share({ title: "Comprovante", text: buildPosText58() });
+          await navigator.share({ title: "Comprovante", text: posText });
           return;
         }
       } catch {
