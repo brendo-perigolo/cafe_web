@@ -102,6 +102,8 @@ export default function Dashboard() {
   const [lancamentoDialogOpen, setLancamentoDialogOpen] = useState(false);
 
   const totalPendentes = pendingCounts.colheitas + pendingCounts.panhadores;
+  const hasPendencias = totalPendentes > 0;
+  const canManualSync = isOnline && hasPendencias && !syncing;
 
   const loadStats = async () => {
     if (!user || !selectedCompany) {
@@ -523,10 +525,43 @@ export default function Dashboard() {
                         Painel rápido
                       </span>
 
-                      <div className="flex items-center justify-center gap-2 rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600 sm:px-3 sm:py-1 sm:text-xs">
-                        <span className={cn("h-2 w-2 rounded-full", isOnline ? "bg-emerald-500" : "bg-rose-500")} />
-                        {isOnline ? "Online" : "Offline"}
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (canManualSync) void handleSync();
+                        }}
+                        disabled={!canManualSync}
+                        className={cn(
+                          "flex items-center justify-center gap-2 rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600 sm:px-3 sm:py-1 sm:text-xs",
+                          canManualSync ? "cursor-pointer" : "cursor-default",
+                        )}
+                        aria-label={
+                          canManualSync
+                            ? totalPendentes > 0
+                              ? `Sincronizar (${totalPendentes} pendentes)`
+                              : "Sincronizar"
+                            : isOnline
+                              ? "Online"
+                              : "Offline"
+                        }
+                        title={
+                          canManualSync
+                            ? totalPendentes > 0
+                              ? `Sincronizar (${totalPendentes} pendentes)`
+                              : "Sincronizar"
+                            : isOnline
+                              ? "Online"
+                              : "Offline"
+                        }
+                      >
+                        <span
+                          className={cn(
+                            "h-2 w-2 rounded-full",
+                            !isOnline ? "bg-rose-500" : hasPendencias ? "bg-amber-500" : "bg-emerald-500",
+                          )}
+                        />
+                        {!isOnline ? "Offline" : hasPendencias ? "Sincronizar" : "Online"}
+                      </button>
 
                       <div className="flex items-center justify-center gap-2 rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600 sm:px-3 sm:py-1 sm:text-xs">
                         <span
