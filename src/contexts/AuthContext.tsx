@@ -22,6 +22,7 @@ interface AuthContextType {
   isMaster: boolean;
   myCargo: "admin" | "user";
   isAdmin: boolean;
+  cargoReady: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (
     email: string,
@@ -108,6 +109,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [companiesLoading, setCompaniesLoading] = useState(false);
   const [companyReady, setCompanyReady] = useState(false);
   const [myCargo, setMyCargo] = useState<"admin" | "user">("user");
+  const [cargoReady, setCargoReady] = useState(false);
   const [selectedCompany, setSelectedCompany] = useState<Tables<"empresas"> | null>(() => {
     try {
       const storedObj = readJson<Tables<"empresas"> | null>(COMPANY_OBJECT_STORAGE_KEY, null);
@@ -413,11 +415,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
     if (!user?.id || !selectedCompany?.id) {
       setMyCargo("user");
+      setCargoReady(true);
       return;
     }
-    void loadMyCargo(user.id, selectedCompany.id);
+
+    setCargoReady(false);
+    (async () => {
+      try {
+        await loadMyCargo(user.id, selectedCompany.id);
+      } finally {
+        if (!cancelled) setCargoReady(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, selectedCompany?.id]);
 
@@ -793,6 +810,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         isMaster,
         myCargo,
         isAdmin,
+        cargoReady,
         signIn,
         signUp,
         signOut,

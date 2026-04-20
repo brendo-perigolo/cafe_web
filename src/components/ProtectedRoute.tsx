@@ -19,7 +19,7 @@ export const ProtectedRoute = ({
   requireMaster = false,
   requireAdmin = false,
 }: ProtectedRouteProps) => {
-  const { user, loading, companiesLoading, companyReady, selectedCompany, isAdmin } = useAuth();
+  const { user, loading, companiesLoading, companyReady, selectedCompany, isAdmin, cargoReady } = useAuth();
   const location = useLocation();
 
   const canCheckCompany = useMemo(() => {
@@ -41,6 +41,10 @@ export const ProtectedRoute = ({
 
   if (requireMaster && user.email?.toLowerCase() !== MASTER_EMAIL.toLowerCase()) {
     return <Navigate to="/dashboard" replace />;
+  }
+
+  if (!requireMaster && requireAdmin && !cargoReady) {
+    return <LoadingScreen title="Carregando..." detail="Validando permissões" />;
   }
 
   if (!requireMaster && requireAdmin && !isAdmin) {
