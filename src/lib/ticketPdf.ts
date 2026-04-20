@@ -164,11 +164,53 @@ export const openPdfTicketFromPosText = async (opts: PdfTicketOptions) => {
   doc.setFontSize(fontSizePt);
 
   let y = startYPt;
-  for (const line of lines) {
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
     if (y > pageHeightPt - marginPt) break;
-    // IMPORTANT: don't allow jsPDF to re-wrap, otherwise we can cut lines.
-    // We already wrapped to a fixed POS width above.
-    doc.text(line, marginPt, y);
+
+    const trimmed = String(line).trimEnd();
+
+    // 1st line is the company name (already centered in POS text); enforce centered + bold in PDF.
+    if (index === 0) {
+      doc.setFont("courier", "bold");
+      doc.text(trimmed, pageWidthPt / 2, y, { align: "center" });
+      doc.setFont("courier", "normal");
+      y += lineHeightPt;
+      continue;
+    }
+
+    // Label/value rendering: label normal, value bold.
+    const match = trimmed.match(/^([^:]{1,16}):\s*(.*)$/);
+    if (match) {
+      const label = (match[1] ?? "").trim();
+      const value = (match[2] ?? "").trim();
+
+      const normalPart = `${label}: `;
+      const maxWidth = pageWidthPt - marginPt * 2;
+
+      doc.setFont("courier", "normal");
+      const normalWidth = doc.getTextWidth(normalPart);
+
+      doc.text(normalPart, marginPt, y);
+
+      doc.setFont("courier", "bold");
+
+      const maxValueWidth = Math.max(0, maxWidth - normalWidth);
+      let valueToPrint = value;
+      while (valueToPrint && doc.getTextWidth(valueToPrint) > maxValueWidth) {
+        valueToPrint = valueToPrint.slice(0, -1);
+      }
+
+      doc.text(valueToPrint || "-", marginPt + normalWidth, y);
+      doc.setFont("courier", "normal");
+
+      y += lineHeightPt;
+      continue;
+    }
+
+    // Default (separators, titles, signature)
+    doc.setFont("courier", "normal");
+    doc.text(trimmed, marginPt, y);
     y += lineHeightPt;
   }
 

@@ -786,8 +786,7 @@ export default function Movimentacoes() {
   const openPrintTicket = (item: Lancamento) => {
     const title = "Comprovante de Colheita";
     const companyName = selectedCompany?.nome ?? "-";
-    const emittedAt = new Date().toLocaleString("pt-BR");
-    const dataLabel = dateFormatter.format(new Date(item.data_colheita));
+    const dataLabel = new Date(item.data_colheita).toLocaleString("pt-BR");
 
     const kgBalaioUsado =
       item.kg_por_balaio_utilizado != null && item.kg_por_balaio_utilizado > 0
@@ -807,6 +806,12 @@ export default function Movimentacoes() {
       const width = 30;
       const sep = "-".repeat(width);
 
+      const centerText = (value: string) => {
+        const s = String(value ?? "").trim().slice(0, width);
+        const leftPad = Math.max(0, Math.floor((width - s.length) / 2));
+        return padRight(" ".repeat(leftPad) + s, width);
+      };
+
       const padRight = (value: string, w: number) => {
         const s = value ?? "";
         if (s.length >= w) return s.slice(0, w);
@@ -824,19 +829,26 @@ export default function Movimentacoes() {
         return " ".repeat(leftPad) + t;
       })();
 
+      const valorBalaio =
+        item.preco_por_balaio != null
+          ? item.preco_por_balaio
+          : balaios != null && item.valor_total != null && balaios > 0
+            ? item.valor_total / balaios
+            : null;
+
       const lines: string[] = [];
-      lines.push(padRight(String(companyName ?? "-").toUpperCase(), width));
+      lines.push(centerText(String(companyName ?? "-").toUpperCase()));
       lines.push(centeredTitle);
       lines.push(sep);
       lines.push(line2("Data", dataLabel, width));
-      lines.push(line2("Gerado", emittedAt, width));
       lines.push(line2("Codigo", item.codigo, width));
       lines.push(sep);
       lines.push(line2("Panhador", item.panhador || "-", width));
       if (item.numero_bag) lines.push(line2("Bag", item.numero_bag, width));
       lines.push(line2("Balaios", balaios != null ? balaios.toFixed(2) : "-", width));
       lines.push(line2("Peso", `${item.peso_kg.toFixed(2)} kg`, width));
-      lines.push(line2("Balaio/media", kgBalaioUsado != null ? `${kgBalaioUsado.toFixed(2)} kg` : "-", width));
+      lines.push(line2("Media", kgBalaioUsado != null ? `${kgBalaioUsado.toFixed(2)} kg` : "-", width));
+      lines.push(line2("Valor", valorBalaio != null ? currencyFormatter.format(valorBalaio) : "-", width));
       lines.push(line2("Preco final", item.valor_total != null ? currencyFormatter.format(item.valor_total) : "-", width));
       if (offline) lines.push(line2("Status", "OFFLINE", width));
       lines.push(sep);

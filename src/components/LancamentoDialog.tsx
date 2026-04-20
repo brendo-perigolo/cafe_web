@@ -955,6 +955,13 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
         const width = 30;
         const sep = "-".repeat(width);
         const title = "COMPROVANTE COLHEITA";
+
+        const centerText = (value: string) => {
+          const s = String(value ?? "").trim().slice(0, width);
+          const leftPad = Math.max(0, Math.floor((width - s.length) / 2));
+          return padRight(" ".repeat(leftPad) + s, width);
+        };
+
         const centeredTitle = (() => {
           const t = title.slice(0, width);
           const leftPad = Math.max(0, Math.floor((width - t.length) / 2));
@@ -963,20 +970,26 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
 
         const kgBalaioUsado = data.kgPorBalaioUsado && data.kgPorBalaioUsado > 0 ? data.kgPorBalaioUsado : null;
         const balaios = kgBalaioUsado != null ? data.pesoKg / kgBalaioUsado : null;
+        const valorBalaio =
+          data.precoPorBalaio != null
+            ? data.precoPorBalaio
+            : balaios != null && data.valorTotal != null && balaios > 0
+              ? data.valorTotal / balaios
+              : null;
 
         const lines: string[] = [];
-        lines.push(padRight(String(data.empresa ?? "-").toUpperCase(), width));
+        lines.push(centerText(String(data.empresa ?? "-").toUpperCase()));
         lines.push(centeredTitle);
         lines.push(sep);
         lines.push(line2("Data", dataLabel, width));
-        lines.push(line2("Gerado", emittedAt, width));
         if (data.codigo) lines.push(line2("Codigo", data.codigo, width));
         lines.push(sep);
         lines.push(line2("Panhador", data.panhador || "-", width));
         if (data.numeroBag) lines.push(line2("Bag", data.numeroBag, width));
         lines.push(line2("Balaios", balaios != null ? balaios.toFixed(2) : "-", width));
         lines.push(line2("Peso", `${data.pesoKg.toFixed(2)} kg`, width));
-        lines.push(line2("Balaio/media", kgBalaioUsado != null ? `${kgBalaioUsado.toFixed(2)} kg` : "-", width));
+        lines.push(line2("Media", kgBalaioUsado != null ? `${kgBalaioUsado.toFixed(2)} kg` : "-", width));
+        lines.push(line2("Valor", formatCurrency(valorBalaio), width));
         lines.push(line2("Preco final", formatCurrency(data.valorTotal ?? null), width));
         if (data.offline) lines.push(line2("Status", "OFFLINE", width));
         lines.push(sep);
