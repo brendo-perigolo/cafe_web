@@ -106,6 +106,8 @@ export const shouldPreferPdfForTicket = () => isIOS() && isStandalonePwa();
 export const openPdfTicketFromPosText = async (opts: PdfTicketOptions) => {
   const { jsPDF } = await import("jspdf");
 
+  const mmToPt = (mm: number) => (mm * 72) / 25.4;
+
   const rawLines = String(opts.text ?? "")
     .replace(/\r\n/g, "\n")
     .split("\n")
@@ -126,17 +128,28 @@ export const openPdfTicketFromPosText = async (opts: PdfTicketOptions) => {
   const lines = rawLines.flatMap((l) => wrapToWidth(l, maxCharsPerLine));
 
   const pageWidthMm = 58;
-  const marginMm = 1.5;
-  const fontSizePt = 9;
-  const lineHeightMm = 3.6;
+  const marginMm = 1.2;
+  const fontSizePt = 8.5;
+  const lineHeightMm = 3.4;
+
+  const topPaddingMm = 2.2;
+  const bottomPaddingMm = 2.2;
 
   const minHeightMm = 60;
-  const contentHeightMm = marginMm * 2 + Math.max(1, lines.length) * lineHeightMm;
-  const pageHeightMm = Math.max(minHeightMm, Math.ceil(contentHeightMm));
+  const contentHeightMm =
+    marginMm * 2 + topPaddingMm + Math.max(1, lines.length) * lineHeightMm + bottomPaddingMm;
+  const pageHeightMm = Math.max(minHeightMm, Math.ceil(contentHeightMm + 1));
 
+  const pageWidthPt = mmToPt(pageWidthMm);
+  const pageHeightPt = mmToPt(pageHeightMm);
+  const marginPt = mmToPt(marginMm);
+  const lineHeightPt = mmToPt(lineHeightMm);
+  const startYPt = mmToPt(marginMm + topPaddingMm);
+
+  // Use pt to avoid any ambiguity in custom page sizes on iOS viewers.
   const doc = new jsPDF({
-    unit: "mm",
-    format: [pageWidthMm, pageHeightMm],
+    unit: "pt",
+    format: [pageWidthPt, pageHeightPt],
   });
 
   // Hint some PDF viewers to open print dialog.
@@ -150,13 +163,13 @@ export const openPdfTicketFromPosText = async (opts: PdfTicketOptions) => {
   doc.setFont("courier", "normal");
   doc.setFontSize(fontSizePt);
 
-  let y = marginMm + 3.5;
+  let y = startYPt;
   for (const line of lines) {
-    if (y > pageHeightMm - marginMm) break;
-    doc.text(line, marginMm, y, {
-      maxWidth: pageWidthMm - marginMm * 2,
-    });
-    y += lineHeightMm;
+    if (y > pageHeightPt - marginPt) break;
+    // IMPORTANT: don't allow jsPDF to re-wrap, otherwise we can cut lines.
+    // We already wrapped to a fixed POS width above.
+    doc.text(line, marginPt, y);
+    y += lineHeightPt;
   }
 
   const blob = doc.output("blob");
