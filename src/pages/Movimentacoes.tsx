@@ -804,7 +804,7 @@ export default function Movimentacoes() {
     const offline = item.codigo.startsWith("OFF-") || !navigator.onLine;
 
     const buildPosText58 = () => {
-      const width = 32;
+      const width = 30;
       const sep = "-".repeat(width);
 
       const padRight = (value: string, w: number) => {
@@ -813,17 +813,9 @@ export default function Movimentacoes() {
         return s + " ".repeat(w - s.length);
       };
 
-      const padLeft = (value: string, w: number) => {
-        const s = value ?? "";
-        if (s.length >= w) return s.slice(0, w);
-        return " ".repeat(w - s.length) + s;
-      };
-
-      const line2 = (label: string, value: string, w = 32) => {
-        const left = `${label}:`;
-        const space = 1;
-        const rightWidth = Math.max(0, w - left.length - space);
-        return `${left} ${padLeft(value, rightWidth)}`.slice(0, w);
+      const line2 = (label: string, value: string, w: number) => {
+        const v = (value ?? "-").trim() || "-";
+        return padRight(`${label}: ${v}`, w).slice(0, w);
       };
 
       const centeredTitle = (() => {

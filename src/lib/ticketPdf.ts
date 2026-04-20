@@ -124,7 +124,7 @@ export const openPdfTicketFromPosText = async (opts: PdfTicketOptions) => {
     return chunks.length ? chunks : [""];
   };
 
-  const maxCharsPerLine = 32;
+  const maxCharsPerLine = 30;
   const lines = rawLines.flatMap((l) => wrapToWidth(l, maxCharsPerLine));
 
   const pageWidthMm = 58;

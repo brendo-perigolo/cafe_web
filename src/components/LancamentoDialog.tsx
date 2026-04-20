@@ -946,21 +946,13 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
         return s + " ".repeat(width - s.length);
       };
 
-      const padLeft = (value: string, width: number) => {
-        const s = value ?? "";
-        if (s.length >= width) return s.slice(0, width);
-        return " ".repeat(width - s.length) + s;
-      };
-
-      const line2 = (label: string, value: string, width = 32) => {
-        const left = `${label}:`;
-        const space = 1;
-        const rightWidth = Math.max(0, width - left.length - space);
-        return `${left} ${padLeft(value, rightWidth)}`.slice(0, width);
+      const line2 = (label: string, value: string, width: number) => {
+        const v = (value ?? "-").trim() || "-";
+        return padRight(`${label}: ${v}`, width).slice(0, width);
       };
 
       const buildPosText58 = () => {
-        const width = 32;
+        const width = 30;
         const sep = "-".repeat(width);
         const title = "COMPROVANTE COLHEITA";
         const centeredTitle = (() => {
