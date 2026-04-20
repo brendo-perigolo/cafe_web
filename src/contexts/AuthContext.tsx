@@ -5,13 +5,13 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { Tables } from "@/integrations/supabase/types";
 import { MASTER_EMAIL } from "@/constants/master";
 import {
-  clearSupabaseAuthFromLocalStorage,
   getKeepConnectedPreference,
   getPreferredStorage,
   removeFromBothStorages,
 } from "@/lib/authStorage";
 import { cacheKey, readJson, writeJson } from "@/lib/offline";
 import { clearEncryptedLoginState, saveEncryptedLoginState } from "@/lib/secureLogin";
+import { toast } from "@/hooks/use-toast";
 
 const LAST_PATH_STORAGE_KEY = "safra:last_path";
 
@@ -19,6 +19,9 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
+  isMaster: boolean;
+  myCargo: "admin" | "user";
+  isAdmin: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (
     email: string,
@@ -91,6 +94,10 @@ function readCachedSupabaseSession(): Session | null {
 
 const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;
 
+const normalizeCargo = (cargo: string | null | undefined): "admin" | "user" => (cargo === "admin" ? "admin" : "user");
+
+const cargoCacheKey = (userId: string, empresaId: string) => `safra:cargo_cache:v1:${userId}:${empresaId}`;
+
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -100,6 +107,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [companies, setCompanies] = useState<Tables<"empresas">[]>([]);
   const [companiesLoading, setCompaniesLoading] = useState(false);
   const [companyReady, setCompanyReady] = useState(false);
+  const [myCargo, setMyCargo] = useState<"admin" | "user">("user");
   const [selectedCompany, setSelectedCompany] = useState<Tables<"empresas"> | null>(() => {
     try {
       const storedObj = readJson<Tables<"empresas"> | null>(COMPANY_OBJECT_STORAGE_KEY, null);
@@ -113,6 +121,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   });
   const navigate = useNavigate();
   const location = useLocation();
+
+  const isMaster = Boolean(user?.email) && user?.email?.toLowerCase() === MASTER_EMAIL.toLowerCase();
+  const isAdmin = isMaster || myCargo === "admin";
 
   useEffect(() => {
     const handler = () => setIsOnline(navigator.onLine);
@@ -291,6 +302,41 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
+  const hydrateCargoFromCache = (userId: string, empresaId: string) => {
+    try {
+      const cached = readJson<{ cargo?: string } | null>(cargoCacheKey(userId, empresaId), null);
+      setMyCargo(normalizeCargo(cached?.cargo ?? null));
+    } catch {
+      setMyCargo("user");
+    }
+  };
+
+  const loadMyCargo = async (userId: string, empresaId: string) => {
+    try {
+      // Offline-first: tenta cache antes
+      hydrateCargoFromCache(userId, empresaId);
+
+      if (!navigator.onLine) return;
+
+      const { data, error } = await supabase
+        .from("empresas_usuarios")
+        .select("cargo")
+        .eq("empresa_id", empresaId)
+        .eq("user_id", userId)
+        .eq("ativo", true)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      const normalized = normalizeCargo(data?.cargo ?? null);
+      setMyCargo(normalized);
+      writeJson(cargoCacheKey(userId, empresaId), { cargo: normalized });
+    } catch (error) {
+      console.error("Erro ao carregar cargo do usuário:", error);
+      // Mantém cache/valor atual
+    }
+  };
+
   useEffect(() => {
     // Setup auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -365,6 +411,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!user?.id || !selectedCompany?.id) {
+      setMyCargo("user");
+      return;
+    }
+    void loadMyCargo(user.id, selectedCompany.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, selectedCompany?.id]);
 
   useEffect(() => {
     // Importante: durante reload, o `user` começa null antes de recuperarmos a sessão.
@@ -461,11 +516,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const signIn = async (email: string, password: string) => {
     try {
-      // Default behavior is NOT to keep the session across browser close.
-      // The UI can set this preference before calling signIn.
-      if (!getKeepConnectedPreference()) {
-        clearSupabaseAuthFromLocalStorage();
-      }
+      // Offline-first: keep Supabase session persisted so reload/PWA restart works without internet.
+      // The "manter conectado" preference only controls inactivity auto-logout.
 
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -738,6 +790,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         user,
         session,
         loading,
+        isMaster,
+        myCargo,
+        isAdmin,
         signIn,
         signUp,
         signOut,

@@ -100,7 +100,7 @@ const dateFormatter = new Intl.DateTimeFormat("pt-BR", {
 });
 
 export default function Movimentacoes() {
-  const { user, selectedCompany } = useAuth();
+  const { user, selectedCompany, isAdmin } = useAuth();
   const { syncPendingData, syncing, savePendingColheitaUpdate } = useOfflineSync();
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1464,32 +1464,37 @@ export default function Movimentacoes() {
                 >
                   <SlidersHorizontal className="h-4 w-4" />
                 </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="rounded-full"
-                  onClick={() => openPrint("relatorio")}
-                  disabled={selectedLancamentos.length === 0}
-                  aria-label="Relatório"
-                  title="Relatório"
-                >
-                  <FileText className="h-4 w-4" />
-                </Button>
-                <Button
-                  size="icon"
-                  className="rounded-full"
-                  onClick={() => setConfirmPagamentoOpen(true)}
-                  disabled={selectedLancamentos.length === 0}
-                  aria-label="Pagamento"
-                  title="Pagamento"
-                >
-                  <CreditCard className="h-4 w-4" />
-                </Button>
+
+                {isAdmin ? (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="rounded-full"
+                      onClick={() => openPrint("relatorio")}
+                      disabled={selectedLancamentos.length === 0}
+                      aria-label="Relatório"
+                      title="Relatório"
+                    >
+                      <FileText className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      className="rounded-full"
+                      onClick={() => setConfirmPagamentoOpen(true)}
+                      disabled={selectedLancamentos.length === 0}
+                      aria-label="Pagamento"
+                      title="Pagamento"
+                    >
+                      <CreditCard className="h-4 w-4" />
+                    </Button>
+                  </>
+                ) : null}
               </div>
             </div>
           </CardHeader>
           <CardContent>
-            {selectedLancamentos.length > 0 && (
+            {isAdmin && selectedLancamentos.length > 0 && (
               <div className="mb-4 flex flex-col gap-2 rounded-2xl border border-slate-100 bg-slate-50 p-3 md:flex-row md:items-center md:justify-between">
                 <div className="text-sm">
                   <strong>{selectedLancamentos.length}</strong> selecionado(s) · {selectedTotals.totalKg.toFixed(2)} kg · {selectedTotals.totalBalaios.toFixed(2)} balaios · {currencyFormatter.format(selectedTotals.totalValor)}
@@ -1620,19 +1625,19 @@ export default function Movimentacoes() {
                     <TableHead className="hidden sm:table-cell text-right">Balaios</TableHead>
                     <TableHead className="text-right">Valor</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Ações</TableHead>
+                        {isAdmin ? <TableHead className="text-right">Ações</TableHead> : null}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                        <TableCell colSpan={12} className="py-6 text-center text-sm text-muted-foreground">
+                        <TableCell colSpan={isAdmin ? 12 : 11} className="py-6 text-center text-sm text-muted-foreground">
                         Carregando movimentações...
                       </TableCell>
                     </TableRow>
                   ) : filteredLancamentos.length === 0 ? (
                     <TableRow>
-                        <TableCell colSpan={12} className="py-6 text-center text-sm text-muted-foreground">
+                        <TableCell colSpan={isAdmin ? 12 : 11} className="py-6 text-center text-sm text-muted-foreground">
                         {lancamentos.length === 0
                           ? "Nenhum lançamento encontrado para esta empresa"
                           : "Nenhum resultado para o filtro aplicado"}
@@ -1713,26 +1718,28 @@ export default function Movimentacoes() {
                             )}
                           </div>
                         </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleOpenEdit(item)}
-                              disabled={item.codigo.startsWith("OFF-")}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => setDeleteTarget(item)}
-                              disabled={item.codigo.startsWith("OFF-")}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </div>
-                        </TableCell>
+                        {isAdmin ? (
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleOpenEdit(item)}
+                                disabled={item.codigo.startsWith("OFF-")}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setDeleteTarget(item)}
+                                disabled={item.codigo.startsWith("OFF-")}
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        ) : null}
                       </TableRow>
                     ))
                   )}
@@ -1882,18 +1889,20 @@ export default function Movimentacoes() {
                   <FileText className="mr-2 h-4 w-4" />
                   Reimprimir
                 </Button>
-                <Button
-                  type="button"
-                  className="w-full sm:w-auto"
-                  onClick={() => {
-                    setDetailsOpen(false);
-                    handleOpenEdit(detailsTarget);
-                  }}
-                  disabled={detailsTarget.codigo.startsWith("OFF-")}
-                >
-                  <Pencil className="mr-2 h-4 w-4" />
-                  Editar
-                </Button>
+                {isAdmin ? (
+                  <Button
+                    type="button"
+                    className="w-full sm:w-auto"
+                    onClick={() => {
+                      setDetailsOpen(false);
+                      handleOpenEdit(detailsTarget);
+                    }}
+                    disabled={detailsTarget.codigo.startsWith("OFF-")}
+                  >
+                    <Pencil className="mr-2 h-4 w-4" />
+                    Editar
+                  </Button>
+                ) : null}
                 {detailsTarget.codigo.startsWith("OFF-") ? (
                   <Button
                     className="w-full sm:w-auto"

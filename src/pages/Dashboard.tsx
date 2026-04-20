@@ -94,7 +94,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [cacheReady, setCacheReady] = useState<boolean | null>(null);
-  const { user, selectedCompany, signOut } = useAuth();
+  const { user, selectedCompany, signOut, isAdmin } = useAuth();
   const { isOnline, syncing, syncPendingData } = useOfflineSync();
   const [pendingCounts, setPendingCounts] = useState(() => getPendingCounts());
   const navigate = useNavigate();
@@ -362,20 +362,24 @@ export default function Dashboard() {
       action: () => navigate("/movimentacoes"),
       accent: "from-emerald-50 to-white border-emerald-100 text-emerald-700",
     },
-    {
-      label: "Controle Financeiro",
-      description: "Despesas e gastos",
-      icon: Coins,
-      action: () => navigate("/despesas"),
-      accent: "from-emerald-50 to-white border-emerald-100 text-emerald-700",
-    },
-    {
-      label: "Propriedades",
-      description: "Propriedades e lavouras",
-      icon: MapPinned,
-      action: () => navigate("/propriedades"),
-      accent: "from-amber-50 to-white border-amber-100 text-amber-700",
-    },
+    ...(isAdmin
+      ? ([
+          {
+            label: "Controle Financeiro",
+            description: "Despesas e gastos",
+            icon: Coins,
+            action: () => navigate("/despesas"),
+            accent: "from-emerald-50 to-white border-emerald-100 text-emerald-700",
+          },
+          {
+            label: "Propriedades",
+            description: "Propriedades e lavouras",
+            icon: MapPinned,
+            action: () => navigate("/propriedades"),
+            accent: "from-amber-50 to-white border-amber-100 text-amber-700",
+          },
+        ] as QuickLink[])
+      : ([] as QuickLink[])),
   ];
 
   const statsCards = [
@@ -385,12 +389,16 @@ export default function Dashboard() {
       helper: "Atualizado automaticamente",
       icon: Coffee,
     },
-    {
-      label: "Receita",
-      value: currencyFormatter.format(totalValor),
-      helper: "Baseada em valores fechados",
-      icon: TrendingUp,
-    },
+    ...(isAdmin
+      ? ([
+          {
+            label: "Receita",
+            value: currencyFormatter.format(totalValor),
+            helper: "Baseada em valores fechados",
+            icon: TrendingUp,
+          },
+        ] as const)
+      : ([] as const)),
     {
       label: "Lançamentos",
       value: colheitasCount,

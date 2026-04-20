@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
 
 export const Navbar = () => {
-  const { signOut, selectedCompany, user, companies } = useAuth();
+  const { signOut, selectedCompany, user, companies, isAdmin } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const isMaster = user?.email?.toLowerCase() === MASTER_EMAIL.toLowerCase();
@@ -108,6 +108,12 @@ export const Navbar = () => {
     { label: "Configurações", icon: Settings, path: "/configuracoes" },
   ] as const;
 
+  const visibleNavItems = (isAdmin
+    ? navItems
+    : navItems.filter((item) =>
+        ["/dashboard", "/lancamento", "/panhadores", "/movimentacoes", "/aparelhos"].includes(item.path),
+      )) as typeof navItems;
+
   return (
     <nav className="sticky top-0 z-50 border-b bg-card shadow-coffee pt-[env(safe-area-inset-top)]">
       <div className="container mx-auto px-4 py-3">
@@ -131,7 +137,7 @@ export const Navbar = () => {
               </SheetHeader>
 
               <div className="px-2 py-3">
-                {navItems.map((item) => {
+                {visibleNavItems.map((item) => {
                   const active = isActive(item.path);
                   return (
                     <SheetClose asChild key={item.path}>
@@ -280,12 +286,16 @@ export const Navbar = () => {
             <Button variant={isActive("/aparelhos") ? "default" : "ghost"} size="icon" onClick={() => navigate("/aparelhos")}>
               <Smartphone className="h-4 w-4" />
             </Button>
-            <Button variant={isActive("/propriedades") ? "default" : "ghost"} size="icon" onClick={() => navigate("/propriedades")}>
-              <MapPinned className="h-4 w-4" />
-            </Button>
-            <Button variant={isActive("/configuracoes") ? "default" : "ghost"} size="icon" onClick={() => navigate("/configuracoes")}>
-              <Settings className="h-4 w-4" />
-            </Button>
+            {isAdmin ? (
+              <>
+                <Button variant={isActive("/propriedades") ? "default" : "ghost"} size="icon" onClick={() => navigate("/propriedades")}>
+                  <MapPinned className="h-4 w-4" />
+                </Button>
+                <Button variant={isActive("/configuracoes") ? "default" : "ghost"} size="icon" onClick={() => navigate("/configuracoes")}>
+                  <Settings className="h-4 w-4" />
+                </Button>
+              </>
+            ) : null}
             {isMaster && (
               <Button variant={isActive("/master") ? "default" : "ghost"} size="icon" onClick={() => navigate("/master")}>
                 <Building2 className="h-4 w-4" />

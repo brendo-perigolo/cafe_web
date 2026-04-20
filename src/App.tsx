@@ -94,7 +94,7 @@ const App = () => (
               <Route
                 path="/configuracoes"
                 element={
-                  <ProtectedRoute>
+                  <ProtectedRoute requireAdmin>
                     <Configuracoes />
                   </ProtectedRoute>
                 }
@@ -102,7 +102,7 @@ const App = () => (
               <Route
                 path="/despesas"
                 element={
-                  <ProtectedRoute>
+                  <ProtectedRoute requireAdmin>
                     <Despesas />
                   </ProtectedRoute>
                 }
@@ -110,7 +110,7 @@ const App = () => (
               <Route
                 path="/planos-contas"
                 element={
-                  <ProtectedRoute>
+                  <ProtectedRoute requireAdmin>
                     <PlanosContas />
                   </ProtectedRoute>
                 }
@@ -118,7 +118,7 @@ const App = () => (
               <Route
                 path="/propriedades"
                 element={
-                  <ProtectedRoute>
+                  <ProtectedRoute requireAdmin>
                     <PropriedadesLavouras />
                   </ProtectedRoute>
                 }
@@ -126,7 +126,7 @@ const App = () => (
               <Route
                 path="/encarregados"
                 element={
-                  <ProtectedRoute>
+                  <ProtectedRoute requireAdmin>
                     <Encarregados />
                   </ProtectedRoute>
                 }

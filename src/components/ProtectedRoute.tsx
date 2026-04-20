@@ -10,10 +10,16 @@ interface ProtectedRouteProps {
   children: React.ReactNode;
   requiresCompany?: boolean;
   requireMaster?: boolean;
+  requireAdmin?: boolean;
 }
 
-export const ProtectedRoute = ({ children, requiresCompany = true, requireMaster = false }: ProtectedRouteProps) => {
-  const { user, loading, companiesLoading, companyReady, selectedCompany } = useAuth();
+export const ProtectedRoute = ({
+  children,
+  requiresCompany = true,
+  requireMaster = false,
+  requireAdmin = false,
+}: ProtectedRouteProps) => {
+  const { user, loading, companiesLoading, companyReady, selectedCompany, isAdmin } = useAuth();
   const location = useLocation();
 
   const canCheckCompany = useMemo(() => {
@@ -34,6 +40,10 @@ export const ProtectedRoute = ({ children, requiresCompany = true, requireMaster
   }
 
   if (requireMaster && user.email?.toLowerCase() !== MASTER_EMAIL.toLowerCase()) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  if (!requireMaster && requireAdmin && !isAdmin) {
     return <Navigate to="/dashboard" replace />;
   }
 
