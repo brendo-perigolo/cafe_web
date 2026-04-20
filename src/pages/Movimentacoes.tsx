@@ -847,7 +847,25 @@ export default function Movimentacoes() {
     w.document.write(html);
     w.document.close();
     w.focus();
-    setTimeout(() => w.print(), 250);
+
+    const isIOS =
+      /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && (navigator as Navigator & { maxTouchPoints?: number }).maxTouchPoints && (navigator as Navigator & { maxTouchPoints?: number }).maxTouchPoints! > 1);
+
+    const printNow = () => {
+      try {
+        w.print();
+      } catch {
+        // ignore
+      }
+    };
+
+    // iOS Safari costuma exigir que o print() rode no mesmo gesto do usuário.
+    if (isIOS) {
+      printNow();
+    } else {
+      setTimeout(printNow, 250);
+    }
   };
 
   const buildPrintableHtmlForItems = (
@@ -1038,7 +1056,24 @@ export default function Movimentacoes() {
     w.document.write(html);
     w.document.close();
     w.focus();
-    setTimeout(() => w.print(), 250);
+
+    const isIOS =
+      /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && (navigator as Navigator & { maxTouchPoints?: number }).maxTouchPoints && (navigator as Navigator & { maxTouchPoints?: number }).maxTouchPoints! > 1);
+
+    const printNow = () => {
+      try {
+        w.print();
+      } catch {
+        // ignore
+      }
+    };
+
+    if (isIOS) {
+      printNow();
+    } else {
+      setTimeout(printNow, 250);
+    }
   };
 
   const handleConfirmPagamento = async () => {
