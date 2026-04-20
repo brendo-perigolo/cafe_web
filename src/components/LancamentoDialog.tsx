@@ -114,7 +114,6 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
   const [trocarBagValue, setTrocarBagValue] = useState("");
   const [trocarBagSaving, setTrocarBagSaving] = useState(false);
   const [usarBalaioNoTicket, setUsarBalaioNoTicket] = useState(false);
-  const [precoPorBalaio, setPrecoPorBalaio] = useState(false);
   const [kgPorBalaioConfig, setKgPorBalaioConfig] = useState<number | null>(null);
   const [kgPorBalaioManual, setKgPorBalaioManual] = useState("");
   const [lancamentoModo, setLancamentoModo] = useState<LancamentoModo>("padrao");
@@ -145,7 +144,6 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
       if (!open || !user || !selectedCompany) {
         setKgPorBalaioConfig(null);
         setKgPorBalaioManual("");
-        setPrecoPorBalaio(false);
         setLancamentoModo("padrao");
         setMostrarPropriedadeLavoura(true);
         setUsarPropriedadeLavouraPadrao(false);
@@ -164,7 +162,6 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
           : null;
       setKgPorBalaioConfig(kgDefault);
       setKgPorBalaioManual(kgDefaultEnabled && kgDefault != null && kgDefault > 0 ? String(kgDefault) : "");
-      setPrecoPorBalaio(modo === "padrao" ? (settings.preco_por_balaio_padrao ?? false) : true);
 
       setMostrarPropriedadeLavoura(settings.mostrar_propriedade_lavoura ?? true);
       setUsarPropriedadeLavouraPadrao(settings.usar_propriedade_lavoura_padrao ?? false);
@@ -185,7 +182,6 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
       setPropriedadeId(PADRAO_OPTION);
       setLavouraId(PADRAO_OPTION);
       setUsarBalaioNoTicket(false);
-      setPrecoPorBalaio(false);
       setKgPorBalaioManual("");
     }
   }, [open]);
@@ -389,7 +385,7 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
     setLavouraId(padrao ?? (list[0]?.id ?? PADRAO_OPTION));
   };
 
-  const precoPorBalaioEfetivo = lancamentoModo === "padrao" ? precoPorBalaio : true;
+  // O app trabalha sempre com preço por balaio.
 
   const effectiveKgPorBalaio = useMemo(() => {
     if (lancamentoModo === "somente_balaio") {
@@ -434,15 +430,11 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
     const peso = effectivePesoKgNumber;
     if (!Number.isFinite(preco) || peso == null || !Number.isFinite(peso)) return null;
 
-    if (precoPorBalaioEfetivo) {
-      if (effectiveKgPorBalaio == null || effectiveKgPorBalaio <= 0) return null;
-      const balaios = balaiosPreview;
-      if (balaios == null) return null;
-      return balaios * preco;
-    }
-
-    return peso * preco;
-  }, [precoKg, effectivePesoKgNumber, precoPorBalaioEfetivo, effectiveKgPorBalaio, balaiosPreview]);
+    if (effectiveKgPorBalaio == null || effectiveKgPorBalaio <= 0) return null;
+    const balaios = balaiosPreview;
+    if (balaios == null) return null;
+    return balaios * preco;
+  }, [precoKg, effectivePesoKgNumber, effectiveKgPorBalaio, balaiosPreview]);
 
   const loadPanhadores = async () => {
     if (!user || !selectedCompany) {
@@ -976,10 +968,8 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
           return " ".repeat(leftPad) + t;
         })();
 
-        const balaios =
-          data.mostrarBalaioNoTicket && data.kgPorBalaioUsado && data.kgPorBalaioUsado > 0
-            ? data.pesoKg / data.kgPorBalaioUsado
-            : null;
+        const kgBalaioUsado = data.kgPorBalaioUsado && data.kgPorBalaioUsado > 0 ? data.kgPorBalaioUsado : null;
+        const balaios = kgBalaioUsado != null ? data.pesoKg / kgBalaioUsado : null;
 
         const lines: string[] = [];
         lines.push(padRight(String(data.empresa ?? "-").toUpperCase(), width));
@@ -991,11 +981,10 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
         lines.push(sep);
         lines.push(line2("Panhador", data.panhador || "-", width));
         if (data.numeroBag) lines.push(line2("Bag", data.numeroBag, width));
+        lines.push(line2("Balaios", balaios != null ? balaios.toFixed(2) : "-", width));
         lines.push(line2("Peso", `${data.pesoKg.toFixed(2)} kg`, width));
-        if (balaios != null) lines.push(line2("Balaios", balaios.toFixed(2), width));
-        if (data.precoPorKg != null) lines.push(line2("Preco/kg", formatCurrency(data.precoPorKg), width));
-        if (data.precoPorBalaio != null) lines.push(line2("Preco/bal", formatCurrency(data.precoPorBalaio), width));
-        if (data.valorTotal != null) lines.push(line2("Valor", formatCurrency(data.valorTotal), width));
+        lines.push(line2("Balaio/media", kgBalaioUsado != null ? `${kgBalaioUsado.toFixed(2)} kg` : "-", width));
+        lines.push(line2("Preco final", formatCurrency(data.valorTotal ?? null), width));
         if (data.offline) lines.push(line2("Status", "OFFLINE", width));
         lines.push(sep);
         lines.push("Assinatura:");
@@ -1017,10 +1006,8 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
         // Usuário pode cancelar ou o app não aceitar; segue para fallback.
       }
 
-      const balaios =
-        data.mostrarBalaioNoTicket && data.kgPorBalaioUsado && data.kgPorBalaioUsado > 0
-          ? data.pesoKg / data.kgPorBalaioUsado
-          : null;
+      const kgBalaioUsado = data.kgPorBalaioUsado && data.kgPorBalaioUsado > 0 ? data.kgPorBalaioUsado : null;
+      const balaios = kgBalaioUsado != null ? data.pesoKg / kgBalaioUsado : null;
 
       const title = "Comprovante de Colheita";
       const html = `
@@ -1058,11 +1045,10 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
             </div>
 
             <div class="kpi">
+              <div class="row"><div class="label">Balaios</div><div class="value">${escapeHtml(balaios != null ? balaios.toFixed(2) : "-")}</div></div>
               <div class="row"><div class="label">Peso</div><div class="value">${escapeHtml(data.pesoKg.toFixed(2))} kg</div></div>
-              ${balaios != null ? `<div class="row"><div class="label">Balaios</div><div class="value">${escapeHtml(balaios.toFixed(2))}</div></div>` : ""}
-              ${data.precoPorKg != null ? `<div class="row"><div class="label">Preço/kg</div><div class="value">${escapeHtml(formatCurrency(data.precoPorKg))}</div></div>` : ""}
-              ${data.precoPorBalaio != null ? `<div class="row"><div class="label">Preço/balaio</div><div class="value">${escapeHtml(formatCurrency(data.precoPorBalaio))}</div></div>` : ""}
-              ${data.valorTotal != null ? `<div class="row"><div class="label">Valor</div><div class="value">${escapeHtml(formatCurrency(data.valorTotal))}</div></div>` : ""}
+              <div class="row"><div class="label">Balaio/média</div><div class="value">${escapeHtml(kgBalaioUsado != null ? `${kgBalaioUsado.toFixed(2)} kg` : "-")}</div></div>
+              <div class="row"><div class="label">Preço final</div><div class="value">${escapeHtml(formatCurrency(data.valorTotal ?? null))}</div></div>
             </div>
 
             <div class="footer">Assinatura: ________________________________</div>
@@ -1145,10 +1131,6 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
         return;
       }
 
-      if (precoPorBalaio && precoInput != null) {
-        // effectiveKgPorBalaio já validado acima
-      }
-
       const round2 = (value: number) => Number(value.toFixed(2));
 
       let precoPorKgFinal: number | undefined;
@@ -1156,19 +1138,11 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
       let valorTotal: number | null = null;
 
       if (precoInput != null) {
-        if (precoPorBalaioEfetivo) {
-          const kgBalaio = effectiveKgPorBalaio as number;
-          precoPorBalaioFinal = round2(precoInput);
-          precoPorKgFinal = round2(precoInput / kgBalaio);
-          const balaios = balaiosPreview;
-          valorTotal = balaios != null ? round2(balaios * precoPorBalaioFinal) : round2((pesoNumber / kgBalaio) * precoPorBalaioFinal);
-        } else {
-          precoPorKgFinal = round2(precoInput);
-          if (effectiveKgPorBalaio != null && Number.isFinite(effectiveKgPorBalaio) && effectiveKgPorBalaio > 0) {
-            precoPorBalaioFinal = round2(precoInput * effectiveKgPorBalaio);
-          }
-          valorTotal = round2(pesoNumber * precoPorKgFinal);
-        }
+        const kgBalaio = effectiveKgPorBalaio as number;
+        precoPorBalaioFinal = round2(precoInput);
+        precoPorKgFinal = round2(precoInput / kgBalaio);
+        const balaios = balaiosPreview;
+        valorTotal = balaios != null ? round2(balaios * precoPorBalaioFinal) : round2((pesoNumber / kgBalaio) * precoPorBalaioFinal);
       }
 
       const parsed = lancamentoSchema.parse({
@@ -1305,6 +1279,9 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
           if (pesoNumber == null || !Number.isFinite(pesoNumber) || pesoNumber <= 0) {
             throw new Error("Peso inválido");
           }
+          if (effectiveKgPorBalaio == null || !Number.isFinite(effectiveKgPorBalaio) || effectiveKgPorBalaio <= 0) {
+            throw new Error("Kg por balaio inválido");
+          }
           const round2 = (value: number) => Number(value.toFixed(2));
 
           let precoPorKgFinal: number | undefined;
@@ -1312,19 +1289,11 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
           let valorTotal: number | null = null;
 
           if (precoInput != null) {
-            if (precoPorBalaioEfetivo) {
-              const kgBalaio = effectiveKgPorBalaio as number;
-              precoPorBalaioFinal = round2(precoInput);
-              precoPorKgFinal = round2(precoInput / kgBalaio);
-              const balaios = balaiosPreview;
-              valorTotal = balaios != null ? round2(balaios * precoPorBalaioFinal) : round2((pesoNumber / kgBalaio) * precoPorBalaioFinal);
-            } else {
-              precoPorKgFinal = round2(precoInput);
-              if (effectiveKgPorBalaio != null && Number.isFinite(effectiveKgPorBalaio) && effectiveKgPorBalaio > 0) {
-                precoPorBalaioFinal = round2(precoInput * effectiveKgPorBalaio);
-              }
-              valorTotal = round2(pesoNumber * precoPorKgFinal);
-            }
+            const kgBalaio = effectiveKgPorBalaio as number;
+            precoPorBalaioFinal = round2(precoInput);
+            precoPorKgFinal = round2(precoInput / kgBalaio);
+            const balaios = balaiosPreview;
+            valorTotal = balaios != null ? round2(balaios * precoPorBalaioFinal) : round2((pesoNumber / kgBalaio) * precoPorBalaioFinal);
           }
 
           const parsed = lancamentoSchema.parse({
@@ -1829,7 +1798,7 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
-                    <Label>{precoPorBalaioEfetivo ? "R$/Balaio" : "R$/Kg"}</Label>
+                    <Label>R$/Balaio</Label>
                     <Input
                       type="number"
                       step="0.01"
@@ -1927,27 +1896,6 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
                   </div>
                 )}
 
-                {lancamentoModo === "padrao" ? (
-                  <div className="grid grid-cols-2 gap-3">
-                    <Button
-                      type="button"
-                      variant={precoPorBalaio ? "outline" : "secondary"}
-                      className="w-full"
-                      onClick={() => setPrecoPorBalaio(false)}
-                    >
-                      Por Kg
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={precoPorBalaio ? "secondary" : "outline"}
-                      className="w-full"
-                      onClick={() => setPrecoPorBalaio(true)}
-                    >
-                      Por Balaio
-                    </Button>
-                  </div>
-                ) : null}
-
                 <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm">
                   <div className="flex items-center justify-between gap-3">
                     <div className="text-xs text-muted-foreground">Qtd. balaios</div>
@@ -1982,18 +1930,12 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
                       Valor estimado: <strong>{valorTotalPreview.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</strong>
                       {precoKg.trim() && (
                         <div className="mt-1 text-xs text-muted-foreground">
-                          Preço/kg: {(
-                            precoPorBalaio && effectiveKgPorBalaio != null && effectiveKgPorBalaio > 0
-                              ? Number(precoKg || 0) / effectiveKgPorBalaio
-                              : Number(precoKg || 0)
-                          ).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                          Preço/balaio: {Number(precoKg || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
                         </div>
                       )}
                       {usarBalaioNoTicket && effectiveKgPorBalaio != null && effectiveKgPorBalaio > 0 && precoKg.trim() && (
                         <div className="mt-1 text-xs text-muted-foreground">
-                          Preço/balaio: {(
-                            precoPorBalaio ? Number(precoKg || 0) : Number(precoKg || 0) * effectiveKgPorBalaio
-                          ).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                          Preço/kg (calculado): {(Number(precoKg || 0) / effectiveKgPorBalaio).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
                         </div>
                       )}
                       {usarBalaioNoTicket && effectiveKgPorBalaio != null && effectiveKgPorBalaio > 0 && pesoKg.trim() && (

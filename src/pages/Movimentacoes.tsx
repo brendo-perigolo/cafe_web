@@ -788,7 +788,18 @@ export default function Movimentacoes() {
     const emittedAt = new Date().toLocaleString("pt-BR");
     const dataLabel = dateFormatter.format(new Date(item.data_colheita));
 
-    const balaios = getBalaiosForLancamento(item);
+    const kgBalaioUsado =
+      item.kg_por_balaio_utilizado != null && item.kg_por_balaio_utilizado > 0
+        ? item.kg_por_balaio_utilizado
+        : kgPorBalaio != null && kgPorBalaio > 0
+          ? kgPorBalaio
+          : null;
+    const balaios =
+      item.quantidade_balaios != null
+        ? item.quantidade_balaios
+        : kgBalaioUsado != null
+          ? Number((item.peso_kg / kgBalaioUsado).toFixed(4))
+          : null;
     const offline = item.codigo.startsWith("OFF-") || !navigator.onLine;
 
     const buildPosText58 = () => {
@@ -830,10 +841,10 @@ export default function Movimentacoes() {
       lines.push(sep);
       lines.push(line2("Panhador", item.panhador || "-", width));
       if (item.numero_bag) lines.push(line2("Bag", item.numero_bag, width));
+      lines.push(line2("Balaios", balaios != null ? balaios.toFixed(2) : "-", width));
       lines.push(line2("Peso", `${item.peso_kg.toFixed(2)} kg`, width));
-      if (balaios != null) lines.push(line2("Balaios", balaios.toFixed(2), width));
-      if (item.preco_por_kg != null) lines.push(line2("Preco/kg", currencyFormatter.format(item.preco_por_kg), width));
-      if (item.valor_total != null) lines.push(line2("Valor", currencyFormatter.format(item.valor_total), width));
+      lines.push(line2("Balaio/media", kgBalaioUsado != null ? `${kgBalaioUsado.toFixed(2)} kg` : "-", width));
+      lines.push(line2("Preco final", item.valor_total != null ? currencyFormatter.format(item.valor_total) : "-", width));
       if (offline) lines.push(line2("Status", "OFFLINE", width));
       lines.push(sep);
       lines.push("Assinatura:");
@@ -889,10 +900,10 @@ export default function Movimentacoes() {
           </div>
 
           <div class="kpi">
+            <div class="row"><div class="label">Balaios</div><div class="value">${escapeHtml(balaios != null ? balaios.toFixed(2) : "-")}</div></div>
             <div class="row"><div class="label">Peso</div><div class="value">${escapeHtml(item.peso_kg.toFixed(2))} kg</div></div>
-            ${balaios != null ? `<div class="row"><div class="label">Balaios</div><div class="value">${escapeHtml(balaios.toFixed(2))}</div></div>` : ""}
-            ${item.preco_por_kg != null ? `<div class="row"><div class="label">Preço/kg</div><div class="value">${escapeHtml(currencyFormatter.format(item.preco_por_kg))}</div></div>` : ""}
-            ${item.valor_total != null ? `<div class="row"><div class="label">Valor</div><div class="value">${escapeHtml(currencyFormatter.format(item.valor_total))}</div></div>` : ""}
+            <div class="row"><div class="label">Balaio/média</div><div class="value">${escapeHtml(kgBalaioUsado != null ? `${kgBalaioUsado.toFixed(2)} kg` : "-")}</div></div>
+            <div class="row"><div class="label">Preço final</div><div class="value">${escapeHtml(item.valor_total != null ? currencyFormatter.format(item.valor_total) : "-")}</div></div>
           </div>
 
           <div class="footer">Assinatura: ________________________________</div>
