@@ -106,15 +106,29 @@ export const shouldPreferPdfForTicket = () => isIOS() && isStandalonePwa();
 export const openPdfTicketFromPosText = async (opts: PdfTicketOptions) => {
   const { jsPDF } = await import("jspdf");
 
-  const lines = String(opts.text ?? "")
+  const rawLines = String(opts.text ?? "")
     .replace(/\r\n/g, "\n")
     .split("\n")
     .map((l) => l.replace(/\t/g, " "));
 
+  // The POS text is generally built for 32-char width. Still, enforce wrapping
+  // to keep everything inside 58mm even if a line comes longer.
+  const wrapToWidth = (line: string, maxChars: number) => {
+    const chunks: string[] = [];
+    const s = String(line ?? "");
+    for (let i = 0; i < s.length; i += maxChars) {
+      chunks.push(s.slice(i, i + maxChars));
+    }
+    return chunks.length ? chunks : [""];
+  };
+
+  const maxCharsPerLine = 32;
+  const lines = rawLines.flatMap((l) => wrapToWidth(l, maxCharsPerLine));
+
   const pageWidthMm = 58;
-  const marginMm = 2;
-  const fontSizePt = 10;
-  const lineHeightMm = 4;
+  const marginMm = 1.5;
+  const fontSizePt = 9;
+  const lineHeightMm = 3.6;
 
   const minHeightMm = 60;
   const contentHeightMm = marginMm * 2 + Math.max(1, lines.length) * lineHeightMm;
@@ -136,10 +150,12 @@ export const openPdfTicketFromPosText = async (opts: PdfTicketOptions) => {
   doc.setFont("courier", "normal");
   doc.setFontSize(fontSizePt);
 
-  let y = marginMm + 4;
+  let y = marginMm + 3.5;
   for (const line of lines) {
     if (y > pageHeightMm - marginMm) break;
-    doc.text(line, marginMm, y);
+    doc.text(line, marginMm, y, {
+      maxWidth: pageWidthMm - marginMm * 2,
+    });
     y += lineHeightMm;
   }
 
