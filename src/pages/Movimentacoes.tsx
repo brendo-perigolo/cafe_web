@@ -791,7 +791,70 @@ export default function Movimentacoes() {
     const balaios = getBalaiosForLancamento(item);
     const offline = item.codigo.startsWith("OFF-") || !navigator.onLine;
 
-    const html = `
+    const buildPosText58 = () => {
+      const width = 32;
+      const sep = "-".repeat(width);
+
+      const padRight = (value: string, w: number) => {
+        const s = value ?? "";
+        if (s.length >= w) return s.slice(0, w);
+        return s + " ".repeat(w - s.length);
+      };
+
+      const padLeft = (value: string, w: number) => {
+        const s = value ?? "";
+        if (s.length >= w) return s.slice(0, w);
+        return " ".repeat(w - s.length) + s;
+      };
+
+      const line2 = (label: string, value: string, w = 32) => {
+        const left = `${label}:`;
+        const space = 1;
+        const rightWidth = Math.max(0, w - left.length - space);
+        return `${left} ${padLeft(value, rightWidth)}`.slice(0, w);
+      };
+
+      const centeredTitle = (() => {
+        const t = "COMPROVANTE COLHEITA".slice(0, width);
+        const leftPad = Math.max(0, Math.floor((width - t.length) / 2));
+        return " ".repeat(leftPad) + t;
+      })();
+
+      const lines: string[] = [];
+      lines.push(padRight(String(companyName ?? "-").toUpperCase(), width));
+      lines.push(centeredTitle);
+      lines.push(sep);
+      lines.push(line2("Data", dataLabel, width));
+      lines.push(line2("Gerado", emittedAt, width));
+      lines.push(line2("Codigo", item.codigo, width));
+      lines.push(sep);
+      lines.push(line2("Panhador", item.panhador || "-", width));
+      if (item.numero_bag) lines.push(line2("Bag", item.numero_bag, width));
+      lines.push(line2("Peso", `${item.peso_kg.toFixed(2)} kg`, width));
+      if (balaios != null) lines.push(line2("Balaios", balaios.toFixed(2), width));
+      if (item.preco_por_kg != null) lines.push(line2("Preco/kg", currencyFormatter.format(item.preco_por_kg), width));
+      if (item.valor_total != null) lines.push(line2("Valor", currencyFormatter.format(item.valor_total), width));
+      if (offline) lines.push(line2("Status", "OFFLINE", width));
+      lines.push(sep);
+      lines.push("Assinatura:");
+      lines.push("______________________________");
+      lines.push("\n");
+      return lines.join("\n");
+    };
+
+    // iOS + impressora Bluetooth: o navegador não imprime direto via BT.
+    // Tentamos primeiro compartilhar o texto (para abrir em app de impressão), e só depois caímos no print do navegador.
+    void (async () => {
+      try {
+        if (typeof navigator !== "undefined" && "share" in navigator && typeof navigator.share === "function") {
+          await navigator.share({ title: "Comprovante", text: buildPosText58() });
+          return;
+        }
+      } catch {
+        // usuário pode cancelar; segue para impressão.
+      }
+
+      const html = `
       <!doctype html>
       <html lang="pt-BR">
         <head>
@@ -837,35 +900,35 @@ export default function Movimentacoes() {
       </html>
     `;
 
-    const w = window.open("", "_blank");
-    if (!w) {
-      toast({ title: "Popup bloqueado", description: "Permita popups para imprimir.", variant: "destructive" });
-      return;
-    }
-
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
-    w.focus();
-
-    const isIOS =
-      /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-      (navigator.platform === "MacIntel" && (navigator as Navigator & { maxTouchPoints?: number }).maxTouchPoints && (navigator as Navigator & { maxTouchPoints?: number }).maxTouchPoints! > 1);
-
-    const printNow = () => {
-      try {
-        w.print();
-      } catch {
-        // ignore
+      const w = window.open("", "_blank");
+      if (!w) {
+        toast({ title: "Popup bloqueado", description: "Permita popups para imprimir.", variant: "destructive" });
+        return;
       }
-    };
 
-    // iOS Safari costuma exigir que o print() rode no mesmo gesto do usuário.
-    if (isIOS) {
-      printNow();
-    } else {
-      setTimeout(printNow, 250);
-    }
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      w.focus();
+
+      const isIOS =
+        /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === "MacIntel" && (navigator as Navigator & { maxTouchPoints?: number }).maxTouchPoints && (navigator as Navigator & { maxTouchPoints?: number }).maxTouchPoints! > 1);
+
+      const printNow = () => {
+        try {
+          w.print();
+        } catch {
+          // ignore
+        }
+      };
+
+      if (isIOS) {
+        printNow();
+      } else {
+        setTimeout(printNow, 250);
+      }
+    })();
   };
 
   const buildPrintableHtmlForItems = (
