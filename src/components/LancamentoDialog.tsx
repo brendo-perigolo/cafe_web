@@ -38,6 +38,14 @@ const lancamentoSchema = z.object({
   precoKg: z.number().positive("Preço deve ser maior que zero").optional(),
 });
 
+const panhadorCadastroSchema = z.object({
+  nome: z.string().trim().min(3, "Nome deve ter pelo menos 3 caracteres"),
+  apelido: z.string().trim().max(120, "Apelido deve ter no máximo 120 caracteres").optional(),
+  cpf: z.string().regex(/^\d{11}$/, "CPF deve ter 11 dígitos numéricos").optional(),
+  telefone: z.string().regex(/^\d{8,15}$/, "Telefone deve conter apenas números (8 a 15 dígitos)").optional(),
+  bagNumero: z.string().trim().max(60, "Número da bag deve ter no máximo 60 caracteres").optional(),
+});
+
 interface PanhadorOption {
   id: string;
   nome: string;
@@ -120,6 +128,9 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
   const [panhadorEditorMode, setPanhadorEditorMode] = useState<"create" | "edit">("create");
   const [panhadorEditorNome, setPanhadorEditorNome] = useState("");
   const [panhadorEditorApelido, setPanhadorEditorApelido] = useState("");
+  const [panhadorEditorCpf, setPanhadorEditorCpf] = useState("");
+  const [panhadorEditorTelefone, setPanhadorEditorTelefone] = useState("");
+  const [panhadorEditorBagNumero, setPanhadorEditorBagNumero] = useState("");
   const [panhadorEditorSaving, setPanhadorEditorSaving] = useState(false);
 
   useEffect(() => {
@@ -590,10 +601,16 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
       setPanhadorEditorMode("edit");
       setPanhadorEditorNome(current.nome ?? "");
       setPanhadorEditorApelido(current.apelido ?? "");
+      setPanhadorEditorCpf("");
+      setPanhadorEditorTelefone("");
+      setPanhadorEditorBagNumero((current.bag_numero ?? "").trim());
     } else {
       setPanhadorEditorMode("create");
       setPanhadorEditorNome("");
       setPanhadorEditorApelido("");
+      setPanhadorEditorCpf("");
+      setPanhadorEditorTelefone("");
+      setPanhadorEditorBagNumero("");
     }
 
     setPanhadorEditorOpen(true);
@@ -607,11 +624,27 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
 
     const nome = panhadorEditorNome.trim();
     const apelido = panhadorEditorApelido.trim();
+    const normalizedCpf = panhadorEditorCpf.replace(/\D/g, "");
+    const normalizedTelefone = panhadorEditorTelefone.replace(/\D/g, "");
+    const trimmedBag = panhadorEditorBagNumero.trim();
 
-    if (nome.length < 3) {
-      toast({ title: "Nome inválido", description: "Informe pelo menos 3 caracteres.", variant: "destructive" });
-      return;
-    }
+    try {
+      const validated = panhadorCadastroSchema.parse({
+        nome,
+        apelido: apelido || undefined,
+        cpf: normalizedCpf ? normalizedCpf : undefined,
+        telefone: normalizedTelefone ? normalizedTelefone : undefined,
+        bagNumero: bagFieldsSupported ? (trimmedBag || undefined) : undefined,
+      });
+
+      if (!bagFieldsSupported && trimmedBag) {
+        toast({
+          title: "Bag indisponível",
+          description: "Seu banco ainda não tem as colunas de bag. Aplique a migration no Supabase e tente novamente.",
+          variant: "destructive",
+        });
+        return;
+      }
 
     setPanhadorEditorSaving(true);
     try {
@@ -628,11 +661,14 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
         const id = safeRandomUUID();
         const payload = {
           id,
-          nome,
-          apelido: apelido ? apelido : null,
+          nome: validated.nome,
+          apelido: validated.apelido ?? null,
+          cpf: validated.cpf ?? null,
+          telefone: validated.telefone ?? null,
           user_id: user.id,
           empresa_id: selectedCompany.id,
           ativo: true,
+          ...(bagFieldsSupported ? { bag_numero: validated.bagNumero ?? null } : {}),
         };
 
         if (navigator.onLine) {
@@ -642,7 +678,13 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
           savePendingPanhadorCreate(selectedCompany.id, payload);
         }
 
-        const created: PanhadorOption = { id, nome, apelido: apelido ? apelido : null, bag_numero: null, bag_semana: null };
+        const created: PanhadorOption = {
+          id,
+          nome: validated.nome,
+          apelido: validated.apelido ?? null,
+          bag_numero: bagFieldsSupported ? (validated.bagNumero ?? null) : null,
+          bag_semana: null,
+        };
         const next = [normalizeOption(created), ...panhadores.filter((p) => p.id !== id).map(normalizeOption)].sort((a, b) =>
           a.nome.localeCompare(b.nome, "pt-BR"),
         );
@@ -669,7 +711,13 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
         return;
       }
 
-      const payload = { id: panhadorId, nome, apelido: apelido ? apelido : null };
+      const payload = {
+        id: panhadorId,
+        nome: validated.nome,
+        apelido: validated.apelido ?? null,
+        ...(validated.cpf ? { cpf: validated.cpf } : {}),
+        ...(validated.telefone ? { telefone: validated.telefone } : {}),
+      };
 
       if (navigator.onLine) {
         const { error } = await supabase
@@ -683,7 +731,11 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
       }
 
       const next = panhadores
-        .map((p) => (p.id === panhadorId ? normalizeOption({ ...p, nome, apelido: apelido ? apelido : null }) : normalizeOption(p)))
+        .map((p) =>
+          p.id === panhadorId
+            ? normalizeOption({ ...p, nome: validated.nome, apelido: validated.apelido ?? null })
+            : normalizeOption(p),
+        )
         .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
 
       setPanhadores(next);
@@ -700,9 +752,41 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
       });
     } catch (error) {
       console.error("Erro ao salvar panhador:", error);
-      toast({ title: "Erro", description: "Não foi possível salvar o panhador.", variant: "destructive" });
+      if (error instanceof z.ZodError) {
+        toast({ title: "Dados inválidos", description: error.errors[0].message, variant: "destructive" });
+      } else {
+        const message =
+          typeof error === "object" && error && "message" in error ? String((error as { message?: unknown }).message) : "";
+        const code = typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code) : "";
+
+        if (code === "23505" || message.toLowerCase().includes("duplicate")) {
+          const msg = message.toLowerCase();
+          if (msg.includes("idx_panhadores_empresa_cpf_unique")) {
+            toast({ title: "CPF já cadastrado", description: "Este CPF já existe nesta empresa.", variant: "destructive" });
+            return;
+          }
+          if (msg.includes("idx_panhadores_empresa_telefone_unique")) {
+            toast({ title: "Telefone já cadastrado", description: "Este telefone já existe nesta empresa.", variant: "destructive" });
+            return;
+          }
+          if (msg.includes("idx_panhadores_empresa_bag_unique")) {
+            toast({ title: "Bag já vinculada", description: "Este número de bag já está vinculado a outro panhador nesta empresa.", variant: "destructive" });
+            return;
+          }
+        }
+
+        toast({ title: "Erro", description: "Não foi possível salvar o panhador.", variant: "destructive" });
+      }
     } finally {
       setPanhadorEditorSaving(false);
+    }
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        toast({ title: "Dados inválidos", description: error.errors[0].message, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Erro", description: "Não foi possível validar os dados.", variant: "destructive" });
+      return;
     }
   };
 
@@ -1477,15 +1561,23 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
           open={panhadorEditorOpen}
           onOpenChange={(open) => {
             setPanhadorEditorOpen(open);
+            if (!open) {
+              setPanhadorEditorNome("");
+              setPanhadorEditorApelido("");
+              setPanhadorEditorCpf("");
+              setPanhadorEditorTelefone("");
+              setPanhadorEditorBagNumero("");
+              setPanhadorEditorMode("create");
+            }
           }}
         >
           <InlineDialogContent>
             <InlineDialogHeader>
-              <InlineDialogTitle>{panhadorEditorMode === "edit" ? "Editar panhador" : "Novo panhador"}</InlineDialogTitle>
+              <InlineDialogTitle>{panhadorEditorMode === "edit" ? "Editar panhador" : "Cadastrar panhador"}</InlineDialogTitle>
               <InlineDialogDescription>
                 {panhadorEditorMode === "edit"
-                  ? "Corrija os dados do panhador sem sair do lançamento."
-                  : "Cadastre um novo panhador sem sair do lançamento."}
+                  ? "Atualize os dados e salve para usar no lançamento."
+                  : "Preencha os dados e salve para incluir na lista."}
               </InlineDialogDescription>
             </InlineDialogHeader>
 
@@ -1502,7 +1594,7 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
                       void savePanhadorFromEditor();
                     }
                   }}
-                  placeholder="Ex: João da Silva"
+                  placeholder="Nome completo"
                   maxLength={120}
                   autoFocus
                 />
@@ -1523,6 +1615,49 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
                   placeholder="Ex: Joãozinho"
                   maxLength={80}
                 />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="panhadorEditorCpf">CPF (opcional)</Label>
+                  <Input
+                    id="panhadorEditorCpf"
+                    value={panhadorEditorCpf}
+                    onChange={(e) => setPanhadorEditorCpf(e.target.value)}
+                    placeholder="Somente números"
+                    inputMode="numeric"
+                    maxLength={20}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="panhadorEditorTelefone">Telefone (opcional)</Label>
+                  <Input
+                    id="panhadorEditorTelefone"
+                    value={panhadorEditorTelefone}
+                    onChange={(e) => setPanhadorEditorTelefone(e.target.value)}
+                    placeholder="Somente números"
+                    inputMode="numeric"
+                    maxLength={20}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="panhadorEditorBag">Bag (opcional)</Label>
+                <Input
+                  id="panhadorEditorBag"
+                  value={panhadorEditorBagNumero}
+                  onChange={(e) => setPanhadorEditorBagNumero(e.target.value)}
+                  placeholder={bagFieldsSupported ? "Ex: 20" : "Indisponível"}
+                  maxLength={60}
+                  disabled={!bagFieldsSupported || panhadorEditorMode === "edit"}
+                />
+                {!bagFieldsSupported ? (
+                  <p className="text-xs text-muted-foreground">
+                    Bag indisponível: aplique a migration no Supabase para habilitar.
+                  </p>
+                ) : null}
               </div>
             </div>
 
