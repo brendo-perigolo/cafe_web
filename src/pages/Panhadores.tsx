@@ -140,7 +140,14 @@ export default function Panhadores() {
   const [pagamentoMetodoDialogOpen, setPagamentoMetodoDialogOpen] = useState(false);
 
   useEffect(() => {
-    const handler = () => setDialogOpen(true);
+    const handler = () => {
+      setNome("");
+      setApelido("");
+      setCpf("");
+      setTelefone("");
+      setBagNumero("");
+      setDialogOpen(true);
+    };
     window.addEventListener("safra:panhadores_add", handler);
     return () => window.removeEventListener("safra:panhadores_add", handler);
   }, []);
@@ -1423,6 +1430,87 @@ export default function Panhadores() {
             </div>
           </CardContent>
         </Card>
+
+        <Dialog
+          open={dialogOpen}
+          onOpenChange={(open) => {
+            setDialogOpen(open);
+            if (!open) {
+              setNome("");
+              setApelido("");
+              setCpf("");
+              setTelefone("");
+              setBagNumero("");
+            }
+          }}
+        >
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Cadastrar panhador</DialogTitle>
+              <DialogDescription>Preencha os dados e salve para incluir na lista.</DialogDescription>
+            </DialogHeader>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label>Nome</Label>
+                <Input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome completo" />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Apelido (opcional)</Label>
+                <Input value={apelido} onChange={(e) => setApelido(e.target.value)} placeholder="Opcional" />
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>CPF (opcional)</Label>
+                  <Input
+                    value={cpf}
+                    onChange={(e) => setCpf(e.target.value)}
+                    placeholder="Somente números"
+                    inputMode="numeric"
+                    maxLength={20}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Telefone (opcional)</Label>
+                  <Input
+                    value={telefone}
+                    onChange={(e) => setTelefone(e.target.value)}
+                    placeholder="Somente números"
+                    inputMode="numeric"
+                    maxLength={20}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Bag (opcional)</Label>
+                <Input
+                  value={bagNumero}
+                  onChange={(e) => setBagNumero(e.target.value)}
+                  placeholder={bagFieldsSupported ? "Ex: 20" : "Indisponível"}
+                  maxLength={60}
+                  disabled={!bagFieldsSupported}
+                />
+                {!bagFieldsSupported ? (
+                  <p className="text-xs text-muted-foreground">
+                    Bag indisponível: aplique a migration no Supabase para habilitar.
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={loading}>
+                  Cancelar
+                </Button>
+                <Button type="submit" disabled={loading}>
+                  {loading ? "Salvando..." : "Salvar"}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
 
         <Dialog
           open={pagamentoOpen}
