@@ -20,7 +20,7 @@ import { useOfflineSync } from "@/hooks/useOfflineSync";
 import { cacheKey, getPendingPanhadorOps, readJson, writeJson } from "@/lib/offline";
 import { getDeviceLancamentoSettings } from "@/lib/deviceSettings";
 import { isUuid, toUuidOrNull } from "@/lib/uuid";
-import { openPdfTicketFromPosText, shouldPreferPdfForTicket } from "@/lib/ticketPdf";
+import { openPdfTicketFromPosText, shouldPreferPdfForTicket, trySharePdfTicketFromPosText } from "@/lib/ticketPdf";
 import { z } from "zod";
 import {
   AlertDialog,
@@ -1013,6 +1013,18 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
         } catch {
           // fallback continua para share/print
         }
+      }
+
+      // Android: tentar compartilhar o PDF (mesmo layout do iOS) quando suportado.
+      try {
+        const shared = await trySharePdfTicketFromPosText({
+          title: "Comprovante",
+          filename: `comprovante-${(data.codigo ?? "SEM-CODIGO").replace(/[^a-zA-Z0-9_-]+/g, "-")}.pdf`,
+          text: posText,
+        });
+        if (shared) return;
+      } catch {
+        // segue para share texto / print
       }
 
       // Android (RawBT): compartilhar texto costuma ser o caminho mais direto.

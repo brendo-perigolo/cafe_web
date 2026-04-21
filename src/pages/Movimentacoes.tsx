@@ -38,7 +38,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
-import { openPdfTicketFromPosText, shouldPreferPdfForTicket } from "@/lib/ticketPdf";
+import { openPdfTicketFromPosText, shouldPreferPdfForTicket, trySharePdfTicketFromPosText } from "@/lib/ticketPdf";
 import { useOfflineSync } from "@/hooks/useOfflineSync";
 import { cn } from "@/lib/utils";
 import { cacheKey, getPendingColheitas, readJson, writeJson } from "@/lib/offline";
@@ -875,6 +875,18 @@ export default function Movimentacoes() {
         } catch {
           // segue para share/print
         }
+      }
+
+      // Android: tentar compartilhar o PDF (mesmo layout do iOS) quando suportado.
+      try {
+        const shared = await trySharePdfTicketFromPosText({
+          title: "Comprovante",
+          filename: `comprovante-${String(item.codigo ?? "SEM-CODIGO").replace(/[^a-zA-Z0-9_-]+/g, "-")}.pdf`,
+          text: posText,
+        });
+        if (shared) return;
+      } catch {
+        // segue para share texto / print
       }
 
       try {

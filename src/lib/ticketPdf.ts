@@ -103,6 +103,123 @@ const openPdfInPrintHost = (blob: Blob, title: string) => {
 
 export const shouldPreferPdfForTicket = () => isIOS() && isStandalonePwa();
 
+export const trySharePdfTicketFromPosText = async (opts: PdfTicketOptions) => {
+  const { jsPDF } = await import("jspdf");
+
+  const mmToPt = (mm: number) => (mm * 72) / 25.4;
+
+  const rawLines = String(opts.text ?? "")
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((l) => l.replace(/\t/g, " "));
+
+  const wrapToWidth = (line: string, maxChars: number) => {
+    const chunks: string[] = [];
+    const s = String(line ?? "");
+    for (let i = 0; i < s.length; i += maxChars) {
+      chunks.push(s.slice(i, i + maxChars));
+    }
+    return chunks.length ? chunks : [""];
+  };
+
+  const maxCharsPerLine = 30;
+  const lines = rawLines.flatMap((l) => wrapToWidth(l, maxCharsPerLine));
+
+  const pageWidthMm = 58;
+  const marginMm = 1.2;
+  const fontSizePt = 8.5;
+  const lineHeightMm = 3.4;
+  const topPaddingMm = 2.2;
+  const bottomPaddingMm = 2.2;
+
+  const minHeightMm = 60;
+  const contentHeightMm =
+    marginMm * 2 + topPaddingMm + Math.max(1, lines.length) * lineHeightMm + bottomPaddingMm;
+  const pageHeightMm = Math.max(minHeightMm, Math.ceil(contentHeightMm + 1));
+
+  const pageWidthPt = mmToPt(pageWidthMm);
+  const pageHeightPt = mmToPt(pageHeightMm);
+  const marginPt = mmToPt(marginMm);
+  const lineHeightPt = mmToPt(lineHeightMm);
+  const startYPt = mmToPt(marginMm + topPaddingMm);
+
+  const doc = new jsPDF({
+    unit: "pt",
+    format: [pageWidthPt, pageHeightPt],
+  });
+
+  try {
+    (doc as unknown as { autoPrint?: () => void }).autoPrint?.();
+  } catch {
+    // ignore
+  }
+
+  doc.setFont("courier", "normal");
+  doc.setFontSize(fontSizePt);
+
+  let y = startYPt;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (y > pageHeightPt - marginPt) break;
+    const trimmed = String(line).trimEnd();
+
+    if (index === 0) {
+      doc.setFont("courier", "bold");
+      doc.text(trimmed, pageWidthPt / 2, y, { align: "center" });
+      doc.setFont("courier", "normal");
+      y += lineHeightPt;
+      continue;
+    }
+
+    const match = trimmed.match(/^([^:]{1,16}):\s*(.*)$/);
+    if (match) {
+      const label = (match[1] ?? "").trim();
+      const value = (match[2] ?? "").trim();
+      const normalPart = `${label}: `;
+      const maxWidth = pageWidthPt - marginPt * 2;
+
+      doc.setFont("courier", "normal");
+      const normalWidth = doc.getTextWidth(normalPart);
+      doc.text(normalPart, marginPt, y);
+
+      doc.setFont("courier", "bold");
+      const maxValueWidth = Math.max(0, maxWidth - normalWidth);
+      let valueToPrint = value;
+      while (valueToPrint && doc.getTextWidth(valueToPrint) > maxValueWidth) {
+        valueToPrint = valueToPrint.slice(0, -1);
+      }
+      doc.text(valueToPrint || "-", marginPt + normalWidth, y);
+      doc.setFont("courier", "normal");
+
+      y += lineHeightPt;
+      continue;
+    }
+
+    doc.setFont("courier", "normal");
+    doc.text(trimmed, marginPt, y);
+    y += lineHeightPt;
+  }
+
+  const blob = doc.output("blob");
+
+  try {
+    const file = new File([blob], opts.filename, { type: "application/pdf" });
+    const nav = navigator as Navigator & {
+      canShare?: (data: unknown) => boolean;
+      share?: (data: unknown) => Promise<void>;
+    };
+
+    if (typeof nav.share === "function" && typeof nav.canShare === "function" && nav.canShare({ files: [file] })) {
+      await nav.share({ title: opts.title, files: [file] });
+      return true;
+    }
+  } catch {
+    // ignore
+  }
+
+  return false;
+};
+
 export const openPdfTicketFromPosText = async (opts: PdfTicketOptions) => {
   const { jsPDF } = await import("jspdf");
 
