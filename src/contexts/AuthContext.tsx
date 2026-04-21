@@ -343,6 +343,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     // Setup auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
+        // Hardening: em alguns ambientes o INITIAL_SESSION pode vir como null antes do
+        // storage/hydrate completar. No modo offline, isso causaria limpeza de estado e
+        // quebra do acesso em campo mesmo com token cacheado.
+        if (event === "INITIAL_SESSION" && !session && !navigator.onLine) {
+          const cached = readCachedSupabaseSession();
+          if (cached?.user) {
+            setSession(cached);
+            setUser(cached.user ?? null);
+            return;
+          }
+        }
+
         setSession(session);
         setUser(session?.user ?? null);
         // Mantém loading enquanto carregamos empresas/empresa selecionada para evitar

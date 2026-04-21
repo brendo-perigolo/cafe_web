@@ -42,12 +42,10 @@ export default function SelectEmpresa() {
   }, [companiesLoading, companies.length]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background via-muted/30 to-background p-6">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+    <div className="min-h-screen bg-gradient-to-b from-background via-muted/30 to-background p-4 sm:p-6">
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
         <div className="text-center">
-          <p className="text-sm uppercase tracking-[0.2em] text-muted-foreground">Painel de empresa</p>
-          <h1 className="mt-2 text-3xl font-bold">Selecione a empresa para entrar</h1>
-          <p className="mt-2 text-muted-foreground">Você tem acesso a mais de uma empresa. Escolha uma para continuar.</p>
+          <h1 className="text-xl font-semibold sm:text-2xl">Selecione a empresa</h1>
         </div>
 
         {companiesLoading ? (
@@ -80,12 +78,12 @@ export default function SelectEmpresa() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-2">
             {companies.map((empresa) => (
               <Card key={empresa.id} className="shadow-coffee flex h-full flex-col">
-                <CardHeader className="space-y-2">
+                <CardHeader className="space-y-2 p-4">
                   <div className="flex items-start justify-between gap-3">
-                    <CardTitle className="text-xl leading-tight">{empresa.nome}</CardTitle>
+                    <CardTitle className="text-base leading-tight sm:text-lg">{empresa.nome}</CardTitle>
                     <Badge
                       className="shrink-0"
                       variant={empresa.ativa ? "default" : "secondary"}
@@ -94,17 +92,17 @@ export default function SelectEmpresa() {
                     </Badge>
                   </div>
                   <div className="space-y-1">
-                    <CardDescription className="min-h-5">
+                    <CardDescription className="min-h-4 text-xs sm:text-sm">
                       {empresa.responsavel ? `Responsável: ${empresa.responsavel}` : "\u00A0"}
                     </CardDescription>
                     {empresa.cnpj ? (
-                      <CardDescription>CNPJ: {empresa.cnpj}</CardDescription>
+                      <CardDescription className="text-xs sm:text-sm">CNPJ: {empresa.cnpj}</CardDescription>
                     ) : null}
                   </div>
                 </CardHeader>
 
-                <CardContent className="mt-auto flex items-end justify-end">
-                  <Button className="shrink-0" onClick={() => handleSelect(empresa.id)}>
+                <CardContent className="mt-auto flex items-end justify-end p-4 pt-0">
+                  <Button size="sm" className="shrink-0" onClick={() => handleSelect(empresa.id)}>
                     <Building2 className="mr-2 h-4 w-4" />
                     Entrar
                   </Button>

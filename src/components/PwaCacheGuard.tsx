@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { toast } from "@/hooks/use-toast";
-import { checkPwaCacheHealth, prefetchCriticalScreens, tryUpdateServiceWorker } from "@/lib/pwaCache";
+import { checkPwaCacheHealth, prefetchCriticalScreens, tryPersistStorage, tryUpdateServiceWorker } from "@/lib/pwaCache";
 
 const WARNED_AT_KEY = "safra:pwa_cache_warned_at";
 const WARN_COOLDOWN_MS = 12 * 60 * 60 * 1000;
@@ -35,6 +35,8 @@ export function PwaCacheGuard() {
 
 			// When online, proactively download critical screens (route chunks).
 			if (navigator.onLine) {
+				// Best-effort: request persistent storage when supported (helps Android/Chrome avoid eviction).
+				void tryPersistStorage();
 				prefetchCriticalScreens();
 			}
 

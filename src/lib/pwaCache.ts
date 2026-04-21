@@ -75,6 +75,20 @@ export async function tryUpdateServiceWorker(): Promise<boolean> {
 	}
 }
 
+export async function tryPersistStorage(): Promise<boolean> {
+	// Best-effort: on some browsers (notably Android/Chrome) this reduces the chance
+	// of the OS evicting cache/storage under pressure. iOS Safari usually doesn't support it.
+	try {
+		const storage = (navigator as unknown as { storage?: StorageManager }).storage;
+		if (!storage?.persist || !storage?.persisted) return false;
+		const already = await storage.persisted();
+		if (already) return true;
+		return await storage.persist();
+	} catch {
+		return false;
+	}
+}
+
 export async function prefetchCriticalScreens() {
 	// Prefetch route chunks so Dashboard/Panhadores/Lançamento are available offline.
 	// This is a no-op in environments that don't support dynamic import prefetch.
@@ -84,6 +98,7 @@ export async function prefetchCriticalScreens() {
 			import("@/pages/Dashboard"),
 			import("@/pages/Panhadores"),
 			import("@/pages/Lancamento"),
+			import("@/pages/Movimentacoes"),
 			import("@/pages/SelectEmpresa"),
 		]);
 	} catch {

@@ -1688,7 +1688,7 @@ export default function Movimentacoes() {
                   const balaios = getBalaiosForLancamento(item);
                   const statusDot = item.pago_em != null ? "bg-emerald-500" : item.valor_total != null ? "bg-sky-500" : "bg-amber-500";
                   return (
-                    <Card key={item.id} className="overflow-hidden border border-slate-100 bg-white">
+                    <Card key={item.id} className="overflow-hidden border border-border bg-muted/40">
                       <button
                         type="button"
                         className="w-full p-3 text-left"
@@ -1710,16 +1710,16 @@ export default function Movimentacoes() {
                         </div>
 
                         <div className="mt-2 flex flex-wrap gap-1.5">
-                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-700">
+                          <span className="rounded-full bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
                             Bag #{item.numero_bag ?? "-"}
                           </span>
-                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-700">
+                          <span className="rounded-full bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
                             {item.peso_kg.toFixed(2)} kg
                           </span>
-                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-700">
+                          <span className="rounded-full bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
                             Bal: {balaios != null ? balaios.toFixed(2) : "-"}
                           </span>
-                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-700">
+                          <span className="rounded-full bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
                             {item.valor_total != null ? currencyFormatter.format(item.valor_total) : "Pendente"}
                           </span>
                         </div>
@@ -1899,86 +1899,92 @@ export default function Movimentacoes() {
           if (!open) setDetailsTarget(null);
         }}
       >
-        <DialogContent className="top-[6%] w-[95vw] max-w-lg max-h-[90vh] translate-y-0 overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Detalhes da movimentação</DialogTitle>
-            <DialogDescription>Informações completas do registro</DialogDescription>
+        <DialogContent className="top-[6%] w-[95vw] max-w-md max-h-[88vh] translate-y-0 overflow-y-auto gap-3 p-4 sm:p-6">
+          <DialogHeader className="space-y-1">
+            <DialogTitle className="text-base">Detalhes</DialogTitle>
+            <DialogDescription className="text-xs">Dados do ticket e ações</DialogDescription>
           </DialogHeader>
 
           {detailsTarget ? (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <Label>Ticket</Label>
-                  <div className="text-sm font-mono">{detailsTarget.codigo}</div>
-                </div>
-                <div className="space-y-1">
-                  <Label>Data</Label>
-                  <div className="text-sm">{dateFormatter.format(new Date(detailsTarget.data_colheita))}</div>
-                </div>
-                <div className="space-y-1">
-                  <Label>Panhador</Label>
-                  <div className="text-sm">{detailsTarget.panhador}</div>
-                </div>
-                <div className="space-y-1">
-                  <Label>Bag</Label>
-                  <div className="text-sm font-mono">{detailsTarget.numero_bag ?? "-"}</div>
-                </div>
-                <div className="space-y-1">
-                  <Label>Peso</Label>
-                  <div className="text-sm">{detailsTarget.peso_kg.toFixed(2)} kg</div>
-                </div>
-                <div className="space-y-1">
-                  <Label>Balaios</Label>
-                  <div className="text-sm">
-                    {(() => {
-                      const balaios = getBalaiosForLancamento(detailsTarget);
-                      return balaios != null ? balaios.toFixed(2) : "-";
-                    })()}
+            <div className="space-y-3">
+              <div className="rounded-lg border bg-muted/30 p-3">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <div className="space-y-0.5">
+                    <Label className="text-[11px] text-muted-foreground">Ticket</Label>
+                    <div className="text-sm font-mono">{detailsTarget.codigo}</div>
                   </div>
-                </div>
-                <div className="space-y-1">
-                  <Label>Valor</Label>
-                  <div className="text-sm">
-                    {detailsTarget.valor_total != null ? currencyFormatter.format(detailsTarget.valor_total) : "Pendente"}
+                  <div className="space-y-0.5">
+                    <Label className="text-[11px] text-muted-foreground">Data</Label>
+                    <div className="text-sm">{dateFormatter.format(new Date(detailsTarget.data_colheita))}</div>
                   </div>
-                </div>
-                <div className="space-y-1">
-                  <Label>Status</Label>
-                  <div className="text-sm">
-                    {detailsTarget.pago_em != null ? "Pago" : detailsTarget.valor_total != null ? "Valor fechado" : "Pendente"}
+                  <div className="space-y-0.5">
+                    <Label className="text-[11px] text-muted-foreground">Panhador</Label>
+                    <div className="text-sm">{detailsTarget.panhador}</div>
+                  </div>
+                  <div className="space-y-0.5">
+                    <Label className="text-[11px] text-muted-foreground">Bag</Label>
+                    <div className="text-sm font-mono">{detailsTarget.numero_bag ?? "-"}</div>
+                  </div>
+                  <div className="space-y-0.5">
+                    <Label className="text-[11px] text-muted-foreground">Peso</Label>
+                    <div className="text-sm">{detailsTarget.peso_kg.toFixed(2)} kg</div>
+                  </div>
+                  <div className="space-y-0.5">
+                    <Label className="text-[11px] text-muted-foreground">Balaios</Label>
+                    <div className="text-sm">
+                      {(() => {
+                        const balaios = getBalaiosForLancamento(detailsTarget);
+                        return balaios != null ? balaios.toFixed(2) : "-";
+                      })()}
+                    </div>
+                  </div>
+                  <div className="space-y-0.5">
+                    <Label className="text-[11px] text-muted-foreground">Valor</Label>
+                    <div className="text-sm">
+                      {detailsTarget.valor_total != null ? currencyFormatter.format(detailsTarget.valor_total) : "Pendente"}
+                    </div>
+                  </div>
+                  <div className="space-y-0.5">
+                    <Label className="text-[11px] text-muted-foreground">Status</Label>
+                    <div className="text-sm">
+                      {detailsTarget.pago_em != null ? "Pago" : detailsTarget.valor_total != null ? "Valor fechado" : "Pendente"}
+                    </div>
                   </div>
                 </div>
               </div>
 
               {propriedadesSupported ? (
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div className="space-y-1">
-                    <Label>Propriedade</Label>
-                    <div className="text-sm">{detailsTarget.propriedade || "padrao"}</div>
-                  </div>
-                  <div className="space-y-1">
-                    <Label>Lavoura</Label>
-                    <div className="text-sm">{detailsTarget.lavoura || "padrao"}</div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div className="space-y-0.5">
+                      <Label className="text-[11px] text-muted-foreground">Propriedade</Label>
+                      <div className="text-sm">{detailsTarget.propriedade || "padrao"}</div>
+                    </div>
+                    <div className="space-y-0.5">
+                      <Label className="text-[11px] text-muted-foreground">Lavoura</Label>
+                      <div className="text-sm">{detailsTarget.lavoura || "padrao"}</div>
+                    </div>
                   </div>
                 </div>
               ) : null}
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <Label>Encarregado</Label>
-                  <div className="text-sm">{detailsTarget.encarregado}</div>
-                </div>
-                <div className="space-y-1">
-                  <Label>Aparelho</Label>
-                  <div className="text-sm">{detailsTarget.aparelho}</div>
+              <div className="rounded-lg border bg-muted/30 p-3">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <div className="space-y-0.5">
+                    <Label className="text-[11px] text-muted-foreground">Encarregado</Label>
+                    <div className="text-sm">{detailsTarget.encarregado}</div>
+                  </div>
+                  <div className="space-y-0.5">
+                    <Label className="text-[11px] text-muted-foreground">Aparelho</Label>
+                    <div className="text-sm">{detailsTarget.aparelho}</div>
+                  </div>
                 </div>
               </div>
 
               {detailsTarget.codigo.startsWith("OFF-") && detailsTarget.offline_last_error ? (
                 <div className="space-y-2">
-                  <Label>Erro de sincronização</Label>
-                  <div className="max-h-48 overflow-auto rounded-md border bg-slate-50 p-3">
+                  <Label className="text-[11px] text-muted-foreground">Erro de sincronização</Label>
+                  <div className="max-h-48 overflow-auto rounded-md border bg-muted/30 p-3">
                     {(() => {
                       const raw = detailsTarget.offline_last_error ?? "";
                       const parts = raw
