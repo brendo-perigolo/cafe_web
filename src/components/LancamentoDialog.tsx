@@ -1220,7 +1220,7 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
           title: "Salvo offline",
           description: "A colheita foi salva no dispositivo e será sincronizada quando a internet voltar.",
           ticket: {
-            codigo: `OFF-${pending.id.slice(0, 8)}`,
+            codigo: (pending as unknown as { codigo?: string | null }).codigo ?? `OFF-${pending.id.slice(0, 8)}`,
             empresa: selectedCompany.nome ?? "-",
             panhador: effectiveSelected?.nome ?? "-",
             dataColheita: basePayload.data_colheita,
@@ -1364,7 +1364,7 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
             title: "Salvo offline",
             description: "A colheita ficou pendente para sincronizar.",
             ticket: {
-              codigo: `OFF-${pending.id.slice(0, 8)}`,
+              codigo: (pending as unknown as { codigo?: string | null }).codigo ?? `OFF-${pending.id.slice(0, 8)}`,
               empresa: selectedCompany.nome ?? "-",
               panhador: effectiveSelected?.nome ?? "-",
               dataColheita: new Date().toISOString(),

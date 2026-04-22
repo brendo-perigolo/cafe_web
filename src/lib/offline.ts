@@ -39,6 +39,9 @@ export function removeKey(key: string) {
 
 export interface PendingColheitaLocal {
   id: string;
+  // Código gerado no cliente para deduplicar reenvios (ex.: queda de rede após o insert).
+  // Opcional para manter compatibilidade com itens antigos já salvos no localStorage.
+  codigo?: string;
   // Metadados de sincronização (opcionais para compatibilidade com itens antigos)
   sync_attempts?: number;
   last_error?: string | null;

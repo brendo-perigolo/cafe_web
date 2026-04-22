@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Supabase local-only artifacts (backups, temp)
+supabase/.temp/
+supabase/Backup/

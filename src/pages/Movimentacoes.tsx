@@ -222,7 +222,7 @@ export default function Movimentacoes() {
       .filter((p) => !existingIds.has(p.id))
       .map((p) => ({
         id: p.id,
-        codigo: `OFF-${p.id.slice(0, 4).toUpperCase()}`,
+        codigo: (p as unknown as { codigo?: string | null }).codigo ?? `OFF-${p.id.slice(0, 8).toUpperCase()}`,
         offline_sync_attempts: p.sync_attempts ?? 0,
         offline_last_error: p.last_error ?? null,
         offline_last_error_at: p.last_error_at ?? null,

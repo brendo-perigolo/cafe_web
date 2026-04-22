@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
@@ -33,39 +33,19 @@ export const useOfflineSync = () => {
   const [syncing, setSyncing] = useState(false);
   const { user } = useAuth();
 
-  useEffect(() => {
-    const handleOnline = () => {
-      setIsOnline(true);
-      toast({
-        title: "Conexão restaurada",
-        description: "Sincronizando dados...",
-      });
-      syncPendingData();
-    };
+  // Evita concorrência entre sync automático (evento online) e manual (Dashboard)
+  // mesmo quando um listener antigo chama uma closure antiga.
+  const syncingRef = useRef(false);
 
-    const handleOffline = () => {
-      setIsOnline(false);
-      toast({
-        title: "Modo offline",
-        description: "Dados serão salvos localmente",
-        variant: "destructive",
-      });
-    };
-
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
-  }, []);
+  const deriveOfflineCodigo = useCallback((id: string) => `OFF-${id.slice(0, 8).toUpperCase()}`, []);
 
   const savePendingColheita = (colheita: Omit<PendingColheita, "id">) => {
     const pending = getPendingColheitas();
+    const id = safeRandomUUID();
     const newColheita: PendingColheita = {
-      id: safeRandomUUID(),
+      id,
       ...colheita,
+      codigo: (colheita as unknown as { codigo?: string | null }).codigo ?? deriveOfflineCodigo(id),
       sync_attempts: colheita.sync_attempts ?? 0,
       last_error: colheita.last_error ?? null,
       last_error_at: colheita.last_error_at ?? null,
@@ -307,9 +287,11 @@ export const useOfflineSync = () => {
     return idRemap;
   };
 
-  const syncPendingData = async () => {
-    if (!user || syncing) return;
+  const syncPendingData = useCallback(async () => {
+    if (!user) return;
+    if (syncingRef.current) return;
 
+    syncingRef.current = true;
     setSyncing(true);
     const pending = getPendingColheitas() as PendingColheita[];
 
@@ -318,6 +300,7 @@ export const useOfflineSync = () => {
     const pendingPanhadores = getPendingPanhadorOps();
 
     if (pending.length === 0 && pendingPanhadores.length === 0 && pendingUpdates.length === 0) {
+      syncingRef.current = false;
       setSyncing(false);
       return;
     }
@@ -338,6 +321,28 @@ export const useOfflineSync = () => {
         details ? details.trim() : "",
       ].filter(Boolean);
       return parts.join(" | ") || "Erro desconhecido";
+    };
+
+    const isUniqueViolation = (err: unknown) => getErrorCode(err) === "23505";
+
+    const remoteHasCodigo = async (empresaId: string, codigo: string) => {
+      // Ambientes antigos podem não ter a coluna; nesse caso não impede o fluxo.
+      try {
+        const { data, error } = await supabase
+          .from("colheitas")
+          .select("id")
+          .eq("empresa_id", empresaId)
+          .eq("codigo", codigo)
+          .maybeSingle();
+        if (error) throw error;
+        return Boolean(data?.id);
+      } catch (e) {
+        const code = getErrorCode(e);
+        const msg = getErrorMessage(e).toLowerCase();
+        const looksLikeMissingColumn = code === "42703" || msg.includes("column") || msg.includes("does not exist") || msg.includes("codigo");
+        if (looksLikeMissingColumn) return false;
+        throw e;
+      }
     };
 
     try {
@@ -365,6 +370,21 @@ export const useOfflineSync = () => {
       const remainingColheitas: PendingColheita[] = [];
 
       for (const colheita of pending) {
+        const codigo = (colheita as unknown as { codigo?: string | null }).codigo ?? deriveOfflineCodigo(colheita.id);
+
+        // Requisito: ao sincronizar (online), verificar se o código já existe no Supabase.
+        if (navigator.onLine) {
+          try {
+            const exists = await remoteHasCodigo(colheita.empresa_id, codigo);
+            if (exists) {
+              colheitasSent += 1;
+              continue;
+            }
+          } catch (e) {
+            console.warn("Falha ao checar colheita por código; tentando inserir:", e);
+          }
+        }
+
         const aparelhoToken = (colheita as unknown as { aparelho_token?: string }).aparelho_token || getDeviceToken();
         let pendenteAparelho = true;
         try {
@@ -374,7 +394,7 @@ export const useOfflineSync = () => {
           pendenteAparelho = true;
         }
 
-        const basePayload: Record<string, unknown> = {
+        const basePayloadNoCodigo: Record<string, unknown> = {
           peso_kg: colheita.peso_kg,
           preco_por_kg: colheita.preco_por_kg,
           valor_total: colheita.valor_total,
@@ -386,8 +406,13 @@ export const useOfflineSync = () => {
           sincronizado: true,
         };
 
+        const basePayloadWithCodigo: Record<string, unknown> = {
+          ...basePayloadNoCodigo,
+          codigo,
+        };
+
         const extendedPayload: Record<string, unknown> = {
-          ...basePayload,
+          ...basePayloadWithCodigo,
           preco_por_balaio: colheita.preco_por_balaio ?? null,
           kg_por_balaio_utilizado: colheita.kg_por_balaio_utilizado ?? null,
           mostrar_balaio_no_ticket: colheita.mostrar_balaio_no_ticket ?? false,
@@ -408,19 +433,29 @@ export const useOfflineSync = () => {
           const message = error ? getErrorMessage(error).toLowerCase() : "";
 
           const looksLikeMissingColumn =
-            code === "42703" || message.includes("column") || message.includes("does not exist") || message.includes("aparelho");
+            code === "42703" || message.includes("column") || message.includes("does not exist") || message.includes("aparelho") || message.includes("codigo");
 
           if (error && looksLikeMissingColumn) {
             // Banco antigo sem colunas novas: tenta com payload mínimo.
-            ({ error } = await supabase.from("colheitas").insert(basePayload));
+            // Se a coluna `codigo` ainda não existe, remove o campo para não falhar.
+            const missingCodigo = message.includes("codigo");
+            ({ error } = await supabase.from("colheitas").insert(missingCodigo ? basePayloadNoCodigo : basePayloadWithCodigo));
           }
 
-          if (error) throw error;
+          if (error) {
+            // Se já existe (unique por codigo), considera sincronizado e remove da fila.
+            if (isUniqueViolation(error)) {
+              colheitasSent += 1;
+              continue;
+            }
+            throw error;
+          }
           colheitasSent += 1;
         } catch (error) {
           console.error("Erro ao sincronizar colheita:", error);
           const next: PendingColheita = {
             ...colheita,
+            codigo,
             sync_attempts: (colheita.sync_attempts ?? 0) + 1,
             last_error: formatSyncError(error),
             last_error_at: new Date().toISOString(),
@@ -530,9 +565,38 @@ export const useOfflineSync = () => {
         variant: "destructive",
       });
     } finally {
+      syncingRef.current = false;
       setSyncing(false);
     }
-  };
+  }, [deriveOfflineCodigo, user]);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      toast({
+        title: "Conexão restaurada",
+        description: "Sincronizando dados...",
+      });
+      void syncPendingData();
+    };
+
+    const handleOffline = () => {
+      setIsOnline(false);
+      toast({
+        title: "Modo offline",
+        description: "Dados serão salvos localmente",
+        variant: "destructive",
+      });
+    };
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [syncPendingData]);
 
   return {
     isOnline,
