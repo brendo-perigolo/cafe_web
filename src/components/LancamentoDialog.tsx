@@ -897,6 +897,9 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
 
     setLoading(true);
 
+  // Gera id no cliente para tornar o insert idempotente (evita duplicidade em retries/queda de rede).
+  const colheitaId = safeRandomUUID();
+
     const effectivePanhadorId = panhadorId;
 
     const escapeHtml = (input: unknown) => {
@@ -1191,6 +1194,7 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
 
       const aparelhoToken = getDeviceToken();
       const basePayload = {
+        id: colheitaId,
         panhador_id: parsed.panhadorId,
         peso_kg: parsed.pesoKg,
         preco_por_kg: parsed.precoKg ?? null,
@@ -1340,6 +1344,7 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
             : null;
 
           const pending = savePendingColheita({
+            id: colheitaId,
             panhador_id: parsed.panhadorId,
             panhador_nome: effectiveSelected?.nome,
             peso_kg: parsed.pesoKg,

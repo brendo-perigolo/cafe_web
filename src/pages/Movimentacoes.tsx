@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   RefreshCw,
   Package,
@@ -41,7 +41,7 @@ import { toast } from "@/hooks/use-toast";
 import { openPdfTicketFromPosText, shouldPreferPdfForTicket, trySharePdfTicketFromPosText } from "@/lib/ticketPdf";
 import { useOfflineSync } from "@/hooks/useOfflineSync";
 import { cn } from "@/lib/utils";
-import { cacheKey, getPendingColheitas, readJson, writeJson } from "@/lib/offline";
+import { cacheKey, getPendingColheitas, OFFLINE_QUEUE_EVENT, readJson, writeJson } from "@/lib/offline";
 import { getDeviceToken, safeRandomUUID } from "@/lib/device";
 import { isUuid, toUuidOrNull } from "@/lib/uuid";
 
@@ -66,6 +66,7 @@ interface Lancamento {
   aparelho_token: string | null;
   pendente_aparelho: boolean;
   // Metadados do item offline (quando ainda não sincronizou)
+  offline_pending?: boolean;
   offline_sync_attempts?: number;
   offline_last_error?: string | null;
   offline_last_error_at?: string | null;
@@ -211,7 +212,7 @@ export default function Movimentacoes() {
     }
   };
 
-  const mergePendingLocal = (items: Lancamento[]) => {
+  const mergePendingLocal = useCallback((items: Lancamento[]) => {
     if (!selectedCompany?.id) return items;
     const pending = getPendingColheitas().filter((p) => p.empresa_id === selectedCompany.id);
     if (pending.length === 0) return items;
@@ -223,6 +224,7 @@ export default function Movimentacoes() {
       .map((p) => ({
         id: p.id,
         codigo: (p as unknown as { codigo?: string | null }).codigo ?? `OFF-${p.id.slice(0, 8).toUpperCase()}`,
+        offline_pending: true,
         offline_sync_attempts: p.sync_attempts ?? 0,
         offline_last_error: p.last_error ?? null,
         offline_last_error_at: p.last_error_at ?? null,
@@ -251,7 +253,17 @@ export default function Movimentacoes() {
 
     // Mostra pendências locais no topo.
     return [...locals, ...items];
-  };
+  }, [selectedCompany?.id]);
+
+  useEffect(() => {
+    const handleQueueUpdate = () => {
+      // Remove itens offline já renderizados e reaplica merge com o estado atual da fila.
+      setLancamentos((prev) => mergePendingLocal(prev.filter((it) => !it.offline_pending)));
+    };
+
+    window.addEventListener(OFFLINE_QUEUE_EVENT, handleQueueUpdate);
+    return () => window.removeEventListener(OFFLINE_QUEUE_EVENT, handleQueueUpdate);
+  }, [mergePendingLocal]);
 
   useEffect(() => {
     loadLancamentos();
@@ -800,7 +812,7 @@ export default function Movimentacoes() {
         : kgBalaioUsado != null
           ? Number((item.peso_kg / kgBalaioUsado).toFixed(4))
           : null;
-    const offline = item.codigo.startsWith("OFF-") || !navigator.onLine;
+    const offline = Boolean(item.offline_pending) || !navigator.onLine;
 
     const buildPosText58 = () => {
       const width = 30;
@@ -1727,13 +1739,13 @@ export default function Movimentacoes() {
                         <div className="mt-2 flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2">
                             <span className={cn("h-2.5 w-2.5 rounded-full", statusDot)} />
-                            {item.codigo.startsWith("OFF-") ? (
+                            {item.offline_pending ? (
                               <span className="text-[10px] font-medium text-amber-700">Pendente sync</span>
                             ) : item.pendente_aparelho ? (
                               <span className="text-[10px] font-medium text-amber-700">Aparelho inativo</span>
                             ) : null}
                           </div>
-                          {item.codigo.startsWith("OFF-") && item.offline_last_error ? (
+                          {item.offline_pending && item.offline_last_error ? (
                             <span className="text-[10px] font-medium text-destructive">Erro</span>
                           ) : null}
                         </div>
@@ -1808,7 +1820,7 @@ export default function Movimentacoes() {
                         <TableCell>
                           <div className="flex items-center gap-2">
                             <div className="font-mono text-sm">#{item.codigo}</div>
-                            {item.codigo.startsWith("OFF-") && (
+                            {item.offline_pending && (
                               <div className="flex items-center gap-2">
                                 <Badge className="bg-amber-100 text-amber-700">Pendente sync</Badge>
                                 {item.offline_last_error ? (
@@ -1867,7 +1879,7 @@ export default function Movimentacoes() {
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => handleOpenEdit(item)}
-                                disabled={item.codigo.startsWith("OFF-")}
+                                disabled={Boolean(item.offline_pending)}
                               >
                                 <Pencil className="h-4 w-4" />
                               </Button>
@@ -1875,7 +1887,7 @@ export default function Movimentacoes() {
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => setDeleteTarget(item)}
-                                disabled={item.codigo.startsWith("OFF-")}
+                                disabled={Boolean(item.offline_pending)}
                               >
                                 <Trash2 className="h-4 w-4 text-destructive" />
                               </Button>
@@ -1981,7 +1993,7 @@ export default function Movimentacoes() {
                 </div>
               </div>
 
-              {detailsTarget.codigo.startsWith("OFF-") && detailsTarget.offline_last_error ? (
+              {detailsTarget.offline_pending && detailsTarget.offline_last_error ? (
                 <div className="space-y-2">
                   <Label className="text-[11px] text-muted-foreground">Erro de sincronização</Label>
                   <div className="max-h-48 overflow-auto rounded-md border bg-muted/30 p-3">
@@ -2045,13 +2057,13 @@ export default function Movimentacoes() {
                       setDetailsOpen(false);
                       handleOpenEdit(detailsTarget);
                     }}
-                    disabled={detailsTarget.codigo.startsWith("OFF-")}
+                    disabled={Boolean(detailsTarget.offline_pending)}
                   >
                     <Pencil className="mr-2 h-4 w-4" />
                     Editar
                   </Button>
                 ) : null}
-                {detailsTarget.codigo.startsWith("OFF-") ? (
+                {detailsTarget.offline_pending ? (
                   <Button
                     className="w-full sm:w-auto"
                     onClick={async () => {

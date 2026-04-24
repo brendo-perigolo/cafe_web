@@ -5,6 +5,16 @@ export const PENDING_COLHEITAS_UPDATES_KEY = "safra:pending_colheitas_updates";
 
 export const PENDING_PANHADORES_OPS_KEY = "safra:pending_panhadores_ops";
 
+export const OFFLINE_QUEUE_EVENT = "safra:offline-queue-updated";
+
+function notifyOfflineQueueUpdated() {
+  try {
+    window.dispatchEvent(new Event(OFFLINE_QUEUE_EVENT));
+  } catch {
+    // ignore
+  }
+}
+
 const CACHE_PREFIX = "safra:cache:";
 
 export type JsonValue = unknown;
@@ -93,6 +103,7 @@ export function setPendingColheitas(next: PendingColheitaLocal[]) {
   writeJson(PENDING_COLHEITAS_KEY, next);
   // cleanup legacy if present
   removeKey(LEGACY_PENDING_COLHEITAS_KEY);
+  notifyOfflineQueueUpdated();
 }
 
 export function getPendingColheitasUpdates(): PendingColheitaUpdateLocal[] {
@@ -101,6 +112,7 @@ export function getPendingColheitasUpdates(): PendingColheitaUpdateLocal[] {
 
 export function setPendingColheitasUpdates(next: PendingColheitaUpdateLocal[]) {
   writeJson(PENDING_COLHEITAS_UPDATES_KEY, next);
+  notifyOfflineQueueUpdated();
 }
 
 export function getPendingPanhadorOps(): PendingPanhadorOp[] {
@@ -109,4 +121,5 @@ export function getPendingPanhadorOps(): PendingPanhadorOp[] {
 
 export function setPendingPanhadorOps(next: PendingPanhadorOp[]) {
   writeJson(PENDING_PANHADORES_OPS_KEY, next);
+  notifyOfflineQueueUpdated();
 }
