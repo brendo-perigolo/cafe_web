@@ -18,6 +18,7 @@ import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { useOfflineSync } from "@/hooks/useOfflineSync";
 import { cacheKey, getPendingPanhadorOps, readJson, writeJson } from "@/lib/offline";
+import { isLikelyNetworkOrTimeoutError, withTimeout } from "@/lib/net";
 import { getDeviceLancamentoSettings } from "@/lib/deviceSettings";
 import { isUuid, toUuidOrNull } from "@/lib/uuid";
 import { openPdfTicketFromPosText, shouldPreferPdfForTicket, trySharePdfTicketFromPosText } from "@/lib/ticketPdf";
@@ -665,8 +666,21 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
         };
 
         if (navigator.onLine) {
-          const { error } = await supabase.from("panhadores").insert(payload);
-          if (error) throw error;
+          try {
+            const { error } = await withTimeout(
+              supabase.from("panhadores").insert(payload),
+              15_000,
+              "insert_panhador"
+            );
+            if (error) throw error;
+          } catch (e) {
+            // Se caiu a conexão durante o envio, salva offline para não perder.
+            if (isLikelyNetworkOrTimeoutError(e) || !navigator.onLine) {
+              await savePendingPanhadorCreate(selectedCompany.id, payload);
+            } else {
+              throw e;
+            }
+          }
         } else {
           await savePendingPanhadorCreate(selectedCompany.id, payload);
         }
@@ -713,12 +727,24 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
       };
 
       if (navigator.onLine) {
-        const { error } = await supabase
-          .from("panhadores")
-          .update(payload)
-          .eq("id", panhadorId)
-          .eq("empresa_id", selectedCompany.id);
-        if (error) throw error;
+        try {
+          const { error } = await withTimeout(
+            supabase
+              .from("panhadores")
+              .update(payload)
+              .eq("id", panhadorId)
+              .eq("empresa_id", selectedCompany.id),
+            15_000,
+            "update_panhador"
+          );
+          if (error) throw error;
+        } catch (e) {
+          if (isLikelyNetworkOrTimeoutError(e) || !navigator.onLine) {
+            await savePendingPanhadorUpdate(selectedCompany.id, payload);
+          } else {
+            throw e;
+          }
+        }
       } else {
         await savePendingPanhadorUpdate(selectedCompany.id, payload);
       }
@@ -1281,14 +1307,27 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
         pendenteAparelho = true;
       }
 
-      const { error } = await supabase.from("colheitas").insert({
-        ...basePayload,
-        user_id: user.id,
-        sincronizado: true,
-        pendente_aparelho: pendenteAparelho,
-      });
+      try {
+        const { error } = await withTimeout(
+          supabase.from("colheitas").insert({
+            ...basePayload,
+            user_id: user.id,
+            sincronizado: true,
+            pendente_aparelho: pendenteAparelho,
+          }),
+          15_000,
+          "insert_colheita"
+        );
 
-      if (error) throw error;
+        if (error) throw error;
+      } catch (e) {
+        // Se perder comunicação no meio do envio, salva offline (idempotente pelo id gerado no cliente).
+        if (isLikelyNetworkOrTimeoutError(e) || !navigator.onLine) {
+          await enqueueOffline();
+          return;
+        }
+        throw e;
+      }
 
       toastRegisteredWithPrint({
         title: "Movimentação registrada",

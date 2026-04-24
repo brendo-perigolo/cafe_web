@@ -42,6 +42,7 @@ import { openPdfTicketFromPosText, shouldPreferPdfForTicket, trySharePdfTicketFr
 import { useOfflineSync } from "@/hooks/useOfflineSync";
 import { cn } from "@/lib/utils";
 import { cacheKey, getPendingColheitas, OFFLINE_QUEUE_EVENT, readJson, writeJson } from "@/lib/offline";
+import { isLikelyNetworkOrTimeoutError, withTimeout } from "@/lib/net";
 import { getDeviceToken, safeRandomUUID } from "@/lib/device";
 import { isUuid, toUuidOrNull } from "@/lib/uuid";
 
@@ -1372,25 +1373,87 @@ export default function Movimentacoes() {
         }
       : {};
 
+    const saveEditOffline = async () => {
+      const updatePayload: Record<string, unknown> = {
+        panhador_id: editForm.panhadorId,
+        peso_kg: pesoNumber,
+        preco_por_kg: precoNumber,
+        valor_total: valorNumber,
+        numero_bag: editForm.numeroBag.trim() ? editForm.numeroBag.trim() : null,
+        ...(propriedadePayload as Record<string, unknown>),
+      };
+
+      await savePendingColheitaUpdate({
+        id: editTarget.id,
+        empresa_id: selectedCompany.id,
+        payload: updatePayload,
+      });
+
+      const panhadorNome = panhadores.find((p) => p.id === editForm.panhadorId)?.nome ?? editTarget.panhador;
+      const propNome =
+        !propriedadesSupported
+          ? editTarget.propriedade
+          : editForm.propriedadeId === PADRAO_OPTION
+            ? "padrao"
+            : propriedades.find((p) => p.id === editForm.propriedadeId)?.nome ?? editTarget.propriedade;
+      const lavNome =
+        !propriedadesSupported
+          ? editTarget.lavoura
+          : editForm.lavouraId === PADRAO_OPTION
+            ? "padrao"
+            : lavouras.find((l) => l.id === editForm.lavouraId)?.nome ?? editTarget.lavoura;
+
+      const applyLocalUpdate = (list: Lancamento[]) =>
+        list.map((it) =>
+          it.id === editTarget.id
+            ? {
+                ...it,
+                panhador_id: editForm.panhadorId,
+                panhador: panhadorNome,
+                propriedade_id:
+                  propriedadesSupported && editForm.propriedadeId !== PADRAO_OPTION ? toUuidOrNull(editForm.propriedadeId) : null,
+                lavoura_id:
+                  propriedadesSupported && editForm.lavouraId !== PADRAO_OPTION ? toUuidOrNull(editForm.lavouraId) : null,
+                propriedade: propNome,
+                lavoura: lavNome,
+                peso_kg: pesoNumber,
+                preco_por_kg: precoNumber,
+                valor_total: valorNumber,
+                numero_bag: editForm.numeroBag.trim() ? editForm.numeroBag.trim() : null,
+              }
+            : it,
+        );
+
+      setLancamentos((prev) => applyLocalUpdate(prev));
+
+      const movCacheKey = cacheKey("movimentacoes_list", selectedCompany.id);
+      const token = getDeviceToken();
+      const deviceMovCacheKey = cacheKey(`movimentacoes_device_${token}`, selectedCompany.id);
+
+      const patchCache = (key: string) => {
+        const cached = readJson<{ cachedAt?: string; lancamentos: Lancamento[] } | null>(key, null);
+        if (!cached?.lancamentos?.length) return;
+        writeJson(key, {
+          ...cached,
+          cachedAt: new Date().toISOString(),
+          lancamentos: applyLocalUpdate(cached.lancamentos),
+        });
+      };
+
+      patchCache(movCacheKey);
+      patchCache(deviceMovCacheKey);
+
+      toast({ title: "Salvo offline", description: "A edição será sincronizada quando a internet voltar." });
+      setEditDialogOpen(false);
+      setEditTarget(null);
+    };
+
     setEditSaving(true);
 
     try {
       if (!navigator.onLine) {
-        const updatePayload: Record<string, unknown> = {
-          panhador_id: editForm.panhadorId,
-          peso_kg: pesoNumber,
-          preco_por_kg: precoNumber,
-          valor_total: valorNumber,
-          numero_bag: editForm.numeroBag.trim() ? editForm.numeroBag.trim() : null,
-          ...(propriedadePayload as Record<string, unknown>),
-        };
-
         try {
-          await savePendingColheitaUpdate({
-            id: editTarget.id,
-            empresa_id: selectedCompany.id,
-            payload: updatePayload,
-          });
+          await saveEditOffline();
         } catch (e) {
           console.error("Falha ao salvar alteração offline:", e);
           toast({
@@ -1398,104 +1461,53 @@ export default function Movimentacoes() {
             description: "Não foi possível gravar no dispositivo. Verifique espaço e tente novamente.",
             variant: "destructive",
           });
-          return;
         }
-
-        const panhadorNome = panhadores.find((p) => p.id === editForm.panhadorId)?.nome ?? editTarget.panhador;
-        const propNome =
-          !propriedadesSupported
-            ? editTarget.propriedade
-            : editForm.propriedadeId === PADRAO_OPTION
-              ? "padrao"
-              : propriedades.find((p) => p.id === editForm.propriedadeId)?.nome ?? editTarget.propriedade;
-        const lavNome =
-          !propriedadesSupported
-            ? editTarget.lavoura
-            : editForm.lavouraId === PADRAO_OPTION
-              ? "padrao"
-              : lavouras.find((l) => l.id === editForm.lavouraId)?.nome ?? editTarget.lavoura;
-
-        const applyLocalUpdate = (list: Lancamento[]) =>
-          list.map((it) =>
-            it.id === editTarget.id
-              ? {
-                  ...it,
-                  panhador_id: editForm.panhadorId,
-                  panhador: panhadorNome,
-                  propriedade_id:
-                    propriedadesSupported && editForm.propriedadeId !== PADRAO_OPTION ? toUuidOrNull(editForm.propriedadeId) : null,
-                  lavoura_id:
-                    propriedadesSupported && editForm.lavouraId !== PADRAO_OPTION ? toUuidOrNull(editForm.lavouraId) : null,
-                  propriedade: propNome,
-                  lavoura: lavNome,
-                  peso_kg: pesoNumber,
-                  preco_por_kg: precoNumber,
-                  valor_total: valorNumber,
-                  numero_bag: editForm.numeroBag.trim() ? editForm.numeroBag.trim() : null,
-                }
-              : it,
-          );
-
-        setLancamentos((prev) => applyLocalUpdate(prev));
-
-        const movCacheKey = cacheKey("movimentacoes_list", selectedCompany.id);
-        const token = getDeviceToken();
-        const deviceMovCacheKey = cacheKey(`movimentacoes_device_${token}`, selectedCompany.id);
-
-        const patchCache = (key: string) => {
-          const cached = readJson<{ cachedAt?: string; lancamentos: Lancamento[] } | null>(key, null);
-          if (!cached?.lancamentos?.length) return;
-          writeJson(key, {
-            ...cached,
-            cachedAt: new Date().toISOString(),
-            lancamentos: applyLocalUpdate(cached.lancamentos),
-          });
-        };
-
-        patchCache(movCacheKey);
-        patchCache(deviceMovCacheKey);
-
-        toast({ title: "Salvo offline", description: "A edição será sincronizada quando a internet voltar." });
-        setEditDialogOpen(false);
-        setEditTarget(null);
         return;
       }
 
-      const { error: historyError } = await supabase.from("colheitas_historico").insert({
-        colheita_id: editTarget.id,
-        empresa_id: selectedCompany.id,
-        user_id: user.id ?? null,
-        dados: {
-          peso_kg: editTarget.peso_kg,
-          preco_por_kg: editTarget.preco_por_kg,
-          valor_total: editTarget.valor_total,
-          numero_bag: editTarget.numero_bag,
-          panhador_id: editTarget.panhador_id,
-          panhador_nome: editTarget.panhador,
-          propriedade_id: editTarget.propriedade_id,
-          lavoura_id: editTarget.lavoura_id,
-          propriedade_nome: editTarget.propriedade,
-          lavoura_nome: editTarget.lavoura,
-          data_colheita: editTarget.data_colheita,
-          responsavel_email: user.email,
-        },
-      });
+      const { error: historyError } = await withTimeout(
+        supabase.from("colheitas_historico").insert({
+          colheita_id: editTarget.id,
+          empresa_id: selectedCompany.id,
+          user_id: user.id ?? null,
+          dados: {
+            peso_kg: editTarget.peso_kg,
+            preco_por_kg: editTarget.preco_por_kg,
+            valor_total: editTarget.valor_total,
+            numero_bag: editTarget.numero_bag,
+            panhador_id: editTarget.panhador_id,
+            panhador_nome: editTarget.panhador,
+            propriedade_id: editTarget.propriedade_id,
+            lavoura_id: editTarget.lavoura_id,
+            propriedade_nome: editTarget.propriedade,
+            lavoura_nome: editTarget.lavoura,
+            data_colheita: editTarget.data_colheita,
+            responsavel_email: user.email,
+          },
+        }),
+        15_000,
+        "insert_colheita_historico",
+      );
 
       if (historyError) throw historyError;
 
-      const { error } = await supabase
-        .from("colheitas")
-        .update({
-          panhador_id: editForm.panhadorId,
-          peso_kg: pesoNumber,
-          preco_por_kg: precoNumber,
-          valor_total: valorNumber,
-          numero_bag: editForm.numeroBag.trim() ? editForm.numeroBag.trim() : null,
-          ...(propriedadePayload as Record<string, unknown>),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", editTarget.id)
-        .eq("empresa_id", selectedCompany.id);
+      const { error } = await withTimeout(
+        supabase
+          .from("colheitas")
+          .update({
+            panhador_id: editForm.panhadorId,
+            peso_kg: pesoNumber,
+            preco_por_kg: precoNumber,
+            valor_total: valorNumber,
+            numero_bag: editForm.numeroBag.trim() ? editForm.numeroBag.trim() : null,
+            ...(propriedadePayload as Record<string, unknown>),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", editTarget.id)
+          .eq("empresa_id", selectedCompany.id),
+        15_000,
+        "update_colheita",
+      );
 
       if (error) throw error;
 
@@ -1505,6 +1517,22 @@ export default function Movimentacoes() {
       await loadLancamentos();
     } catch (err) {
       console.error("Erro ao atualizar movimentação:", err);
+      if (isLikelyNetworkOrTimeoutError(err) || !navigator.onLine) {
+        try {
+          // fallback: perde comunicação durante o request
+          await saveEditOffline();
+          return;
+        } catch (offlineErr) {
+          console.error("Falha ao salvar alteração offline (fallback):", offlineErr);
+          toast({
+            title: "Falha ao salvar offline",
+            description: "Não foi possível gravar no dispositivo. Verifique espaço e tente novamente.",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+
       toast({ title: "Erro ao atualizar", description: "Tente novamente", variant: "destructive" });
     } finally {
       setEditSaving(false);
