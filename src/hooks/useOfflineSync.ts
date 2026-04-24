@@ -39,11 +39,83 @@ export const useOfflineSync = () => {
   const autoSyncTimerRef = useRef<number | null>(null);
   const autoSyncTokenRef = useRef(0);
 
+  // Lock cross-tab (PWA): evita sincronização concorrente entre abas/janelas.
+  const syncLockOwnerRef = useRef<string>(safeRandomUUID());
+  const syncLockRefreshRef = useRef<number | null>(null);
+
   // Evita concorrência entre sync automático (evento online) e manual (Dashboard)
   // mesmo quando um listener antigo chama uma closure antiga.
   const syncingRef = useRef(false);
 
   const deriveOfflineCodigo = useCallback((id: string) => `OFF-${id.slice(0, 8).toUpperCase()}`, []);
+
+  const acquireCrossTabSyncLock = useCallback(() => {
+    const KEY = "safra:sync_lock";
+    const TTL_MS = 2 * 60 * 1000;
+    const owner = syncLockOwnerRef.current;
+    const now = Date.now();
+
+    const readLock = () => {
+      try {
+        const raw = localStorage.getItem(KEY);
+        if (!raw) return null;
+        return JSON.parse(raw) as { owner?: string; expiresAt?: number };
+      } catch {
+        return null;
+      }
+    };
+
+    const writeLock = (expiresAt: number) => {
+      try {
+        localStorage.setItem(KEY, JSON.stringify({ owner, expiresAt }));
+      } catch {
+        // ignore
+      }
+    };
+
+    const current = readLock();
+    const currentOwner = typeof current?.owner === "string" ? current.owner : null;
+    const currentExpires = typeof current?.expiresAt === "number" ? current.expiresAt : 0;
+
+    if (currentOwner && currentOwner !== owner && currentExpires > now) {
+      return false;
+    }
+
+    writeLock(now + TTL_MS);
+    const confirm = readLock();
+    return (typeof confirm?.owner === "string" ? confirm.owner : null) === owner;
+  }, []);
+
+  const refreshCrossTabSyncLock = useCallback(() => {
+    const KEY = "safra:sync_lock";
+    const TTL_MS = 2 * 60 * 1000;
+    const owner = syncLockOwnerRef.current;
+    const now = Date.now();
+
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { owner?: string; expiresAt?: number };
+      if (parsed?.owner !== owner) return;
+      localStorage.setItem(KEY, JSON.stringify({ owner, expiresAt: now + TTL_MS }));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const releaseCrossTabSyncLock = useCallback(() => {
+    const KEY = "safra:sync_lock";
+    const owner = syncLockOwnerRef.current;
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { owner?: string };
+      if (parsed?.owner !== owner) return;
+      localStorage.removeItem(KEY);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const savePendingColheita = (colheita: Omit<PendingColheita, "id"> & { id?: string }) => {
     const pending = getPendingColheitas();
@@ -303,6 +375,16 @@ export const useOfflineSync = () => {
     // Sem isso, podem ocorrer inserts duplicados (duas syncs lendo a mesma fila).
     if (globalSyncPromise) return globalSyncPromise;
 
+    // Lock cross-tab: se outra aba estiver sincronizando, não inicia aqui.
+    if (!acquireCrossTabSyncLock()) return;
+
+    // Mantém o lock vivo durante a sync.
+    if (syncLockRefreshRef.current != null) {
+      window.clearInterval(syncLockRefreshRef.current);
+      syncLockRefreshRef.current = null;
+    }
+    syncLockRefreshRef.current = window.setInterval(() => refreshCrossTabSyncLock(), 30_000);
+
     const run = (async () => {
       if (syncingRef.current) return;
 
@@ -546,10 +628,16 @@ export const useOfflineSync = () => {
 
     globalSyncPromise = run.finally(() => {
       globalSyncPromise = null;
+
+      if (syncLockRefreshRef.current != null) {
+        window.clearInterval(syncLockRefreshRef.current);
+        syncLockRefreshRef.current = null;
+      }
+      releaseCrossTabSyncLock();
     });
 
     return globalSyncPromise;
-  }, [user]);
+  }, [acquireCrossTabSyncLock, refreshCrossTabSyncLock, releaseCrossTabSyncLock, user]);
 
   useEffect(() => {
     const clearAutoSyncTimer = () => {
@@ -584,10 +672,7 @@ export const useOfflineSync = () => {
 
       toast({
         title: "Conexão restaurada",
-        description:
-          total > 0
-            ? "Testando estabilidade da conexão (10s) antes de sincronizar..."
-            : "Conexão ok.",
+        description: total > 0 ? "Sincronização automática será iniciada em instantes." : "Conexão ok.",
       });
 
       // Só agenda auto-sync quando houver pendências.
