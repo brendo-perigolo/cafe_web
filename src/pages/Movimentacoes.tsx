@@ -96,11 +96,18 @@ const currencyFormatter = new Intl.NumberFormat("pt-BR", {
   currency: "BRL",
 });
 
-const dateFormatter = new Intl.DateTimeFormat("pt-BR", {
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-});
+
+
+function formatDataColheitaFull(dateStr: string) {
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return dateStr;
+  const dia = d.getDate().toString().padStart(2, "0");
+  const mes = (d.getMonth() + 1).toString().padStart(2, "0");
+  const ano = d.getFullYear();
+  const hora = d.getHours().toString().padStart(2, "0");
+  const min = d.getMinutes().toString().padStart(2, "0");
+  return `${dia}/${mes}/${ano} ${hora}:${min}`;
+}
 
 export default function Movimentacoes() {
   const { user, selectedCompany, isAdmin } = useAuth();
@@ -734,7 +741,7 @@ export default function Movimentacoes() {
       const codigoMatch = item.codigo.toLowerCase().includes(term);
       const panhadorMatch = item.panhador.toLowerCase().includes(term);
       const bagMatch = item.numero_bag?.toLowerCase().includes(term) ?? false;
-      const dataMatch = dateFormatter.format(new Date(item.data_colheita)).includes(term);
+      const dataMatch = formatDataColheitaFull(item.data_colheita).includes(term);
       return codigoMatch || panhadorMatch || bagMatch || dataMatch;
     });
   }, [lancamentos, filter, statusFilter, panhadorFilterId, startDate, endDate]);
@@ -1056,7 +1063,7 @@ export default function Movimentacoes() {
             return `
               <tr>
                 <td>#${escapeHtml(it.codigo)}</td>
-                <td>${escapeHtml(dateFormatter.format(new Date(it.data_colheita)))}</td>
+                <td>${escapeHtml(formatDataColheitaFull(it.data_colheita))}</td>
                 <td>${escapeHtml(it.numero_bag ?? "-")}</td>
                 <td class="num">${it.peso_kg.toFixed(2)}</td>
                 <td class="num">${balaios != null ? balaios.toFixed(2) : "-"}</td>
@@ -1755,7 +1762,7 @@ export default function Movimentacoes() {
                             <div className="truncate text-xs text-muted-foreground">{item.panhador}</div>
                           </div>
                           <div className="shrink-0 text-[10px] text-muted-foreground">
-                            {dateFormatter.format(new Date(item.data_colheita))}
+                            {formatDataColheitaFull(item.data_colheita)}
                           </div>
                         </div>
 
@@ -1881,7 +1888,7 @@ export default function Movimentacoes() {
                             )}
                           </div>
                         </TableCell>
-                        <TableCell>{dateFormatter.format(new Date(item.data_colheita))}</TableCell>
+                        <TableCell>{formatDataColheitaFull(item.data_colheita)}</TableCell>
                         <TableCell className="hidden md:table-cell">{item.encarregado}</TableCell>
                         <TableCell className="hidden md:table-cell">{item.aparelho}</TableCell>
                         <TableCell>{item.panhador}</TableCell>
@@ -1905,9 +1912,7 @@ export default function Movimentacoes() {
                               ) : (
                                 <Badge className="bg-amber-100 text-amber-700">Pendente</Badge>
                               )}
-                            {item.pendente_aparelho && (
-                              <Badge className="bg-amber-100 text-amber-700">Aparelho inativo</Badge>
-                            )}
+                            {/* Removido status 'Aparelho inativo' */}
                           </div>
                         </TableCell>
                         {isAdmin ? (
@@ -1965,7 +1970,7 @@ export default function Movimentacoes() {
                   </div>
                   <div className="space-y-0.5">
                     <Label className="text-[11px] text-muted-foreground">Data</Label>
-                    <div className="text-sm">{dateFormatter.format(new Date(detailsTarget.data_colheita))}</div>
+                    <div className="text-sm">{formatDataColheitaFull(detailsTarget.data_colheita)}</div>
                   </div>
                   <div className="space-y-0.5">
                     <Label className="text-[11px] text-muted-foreground">Panhador</Label>
