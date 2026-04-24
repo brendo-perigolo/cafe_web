@@ -1385,11 +1385,21 @@ export default function Movimentacoes() {
           ...(propriedadePayload as Record<string, unknown>),
         };
 
-        savePendingColheitaUpdate({
-          id: editTarget.id,
-          empresa_id: selectedCompany.id,
-          payload: updatePayload,
-        });
+        try {
+          await savePendingColheitaUpdate({
+            id: editTarget.id,
+            empresa_id: selectedCompany.id,
+            payload: updatePayload,
+          });
+        } catch (e) {
+          console.error("Falha ao salvar alteração offline:", e);
+          toast({
+            title: "Falha ao salvar offline",
+            description: "Não foi possível gravar no dispositivo. Verifique espaço e tente novamente.",
+            variant: "destructive",
+          });
+          return;
+        }
 
         const panhadorNome = panhadores.find((p) => p.id === editForm.panhadorId)?.nome ?? editTarget.panhador;
         const propNome =

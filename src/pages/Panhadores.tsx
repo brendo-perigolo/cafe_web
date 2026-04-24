@@ -778,13 +778,23 @@ export default function Panhadores() {
     const now = new Date().toISOString();
 
     if (!navigator.onLine) {
-      savePendingPanhadorUpdate(selectedCompany.id, {
-        id: otherId,
-        bag_numero: null,
-        bag_semana: null,
-        bag_atualizado_em: now,
-        updated_at: now,
-      });
+      try {
+        await savePendingPanhadorUpdate(selectedCompany.id, {
+          id: otherId,
+          bag_numero: null,
+          bag_semana: null,
+          bag_atualizado_em: now,
+          updated_at: now,
+        });
+      } catch (e) {
+        console.error("Falha ao salvar offline:", e);
+        toast({
+          title: "Falha ao salvar offline",
+          description: "Não foi possível gravar no dispositivo. Verifique espaço e tente novamente.",
+          variant: "destructive",
+        });
+        return;
+      }
       setPanhadores((prev) =>
         prev.map((p) => (p.id === otherId ? { ...p, bag_numero: null, bag_semana: null, bag_atualizado_em: now } : p)),
       );
@@ -811,12 +821,22 @@ export default function Panhadores() {
     const now = new Date().toISOString();
 
     if (!navigator.onLine) {
-      savePendingPanhadorUpdate(selectedCompany.id, {
-        id: panhadorId,
-        bag_numero: bagNova,
-        bag_atualizado_em: now,
-        updated_at: now,
-      });
+      try {
+        await savePendingPanhadorUpdate(selectedCompany.id, {
+          id: panhadorId,
+          bag_numero: bagNova,
+          bag_atualizado_em: now,
+          updated_at: now,
+        });
+      } catch (e) {
+        console.error("Falha ao salvar offline:", e);
+        toast({
+          title: "Falha ao salvar offline",
+          description: "Não foi possível gravar no dispositivo. Verifique espaço e tente novamente.",
+          variant: "destructive",
+        });
+        return;
+      }
       setPanhadores((prev) =>
         prev.map((p) => (p.id === panhadorId ? { ...p, bag_numero: bagNova, bag_atualizado_em: now } : p)),
       );
@@ -886,7 +906,7 @@ export default function Panhadores() {
           payload.bag_numero = validated.bagNumero ?? null;
         }
 
-        savePendingPanhadorCreate(selectedCompany.id, payload);
+        await savePendingPanhadorCreate(selectedCompany.id, payload);
 
         setPanhadores((prev) => [
           {
@@ -1039,10 +1059,20 @@ export default function Panhadores() {
     if (!user || !selectedCompany) return;
 
     if (!navigator.onLine) {
-      savePendingPanhadorDeactivate(selectedCompany.id, id);
-      setPanhadores((prev) => prev.filter((p) => p.id !== id));
-      toast({ title: "Salvo offline", description: "Desativação ficará pendente para sincronizar." });
-      return;
+      try {
+        await savePendingPanhadorDeactivate(selectedCompany.id, id);
+        setPanhadores((prev) => prev.filter((p) => p.id !== id));
+        toast({ title: "Salvo offline", description: "Desativação ficará pendente para sincronizar." });
+        return;
+      } catch (e) {
+        console.error("Falha ao salvar offline:", e);
+        toast({
+          title: "Falha ao salvar offline",
+          description: "Não foi possível gravar no dispositivo. Verifique espaço e tente novamente.",
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     const { error } = await supabase
@@ -1162,7 +1192,7 @@ export default function Panhadores() {
           updatePayload.bag_numero = nextBag;
           if (bagChanged) updatePayload.bag_atualizado_em = now;
         }
-        savePendingPanhadorUpdate(selectedCompany.id, updatePayload);
+        await savePendingPanhadorUpdate(selectedCompany.id, updatePayload);
         setPanhadores((prev) =>
           prev.map((p) =>
             p.id === bagTarget.id

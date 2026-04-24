@@ -117,7 +117,7 @@ export const useOfflineSync = () => {
     }
   }, []);
 
-  const savePendingColheita = (colheita: Omit<PendingColheita, "id"> & { id?: string }) => {
+  const savePendingColheita = async (colheita: Omit<PendingColheita, "id"> & { id?: string }) => {
     const pending = getPendingColheitas();
     const id = colheita.id ?? safeRandomUUID();
     const newColheita: PendingColheita = {
@@ -132,19 +132,19 @@ export const useOfflineSync = () => {
     // Evita duplicar o mesmo id na fila (ex.: submit duplo / retry UI)
     const next = pending.filter((p) => p.id !== id);
     next.push(newColheita);
-    setPendingColheitas(next);
+    await setPendingColheitas(next);
     return newColheita;
   };
 
-  const savePendingPanhadorOp = (op: Omit<PendingPanhadorOp, "id" | "created_at">) => {
+  const savePendingPanhadorOp = async (op: Omit<PendingPanhadorOp, "id" | "created_at">) => {
     const pending = getPendingPanhadorOps();
     const newOp: PendingPanhadorOp = {
       id: safeRandomUUID(),
       created_at: new Date().toISOString(),
       ...op,
     };
-    pending.push(newOp);
-    setPendingPanhadorOps(pending);
+    const next = [...pending, newOp];
+    await setPendingPanhadorOps(next);
     return newOp;
   };
 
@@ -157,7 +157,9 @@ export const useOfflineSync = () => {
   const savePendingPanhadorDeactivate = (empresaId: string, panhadorId: string) =>
     savePendingPanhadorOp({ action: "deactivate", empresa_id: empresaId, payload: { id: panhadorId } });
 
-  const savePendingColheitaUpdate = (update: Omit<PendingColheitaUpdateLocal, "created_at" | "sync_attempts" | "last_error" | "last_error_at">) => {
+  const savePendingColheitaUpdate = async (
+    update: Omit<PendingColheitaUpdateLocal, "created_at" | "sync_attempts" | "last_error" | "last_error_at">
+  ) => {
     const pending = getPendingColheitasUpdates();
     const newUpdate: PendingColheitaUpdateLocal = {
       ...update,
@@ -170,7 +172,7 @@ export const useOfflineSync = () => {
     // Replace any previous pending update for same colheita id (keep newest intent).
     const next = pending.filter((it) => it.id !== update.id);
     next.push(newUpdate);
-    setPendingColheitasUpdates(next);
+    await setPendingColheitasUpdates(next);
     return newUpdate;
   };
 
@@ -363,7 +365,7 @@ export const useOfflineSync = () => {
       }
     }
 
-    setPendingPanhadorOps(remaining);
+    await setPendingPanhadorOps(remaining);
 
     return idRemap;
   };
@@ -435,7 +437,7 @@ export const useOfflineSync = () => {
           const nextId = key && panhadorRemap[key] ? panhadorRemap[key] : current;
           return nextId === current ? c : ({ ...c, panhador_id: nextId } as PendingColheita);
         });
-        setPendingColheitas(remapped);
+        await setPendingColheitas(remapped);
       }
 
       const pendingPanhadoresAfter = getPendingPanhadorOps();
@@ -520,7 +522,7 @@ export const useOfflineSync = () => {
         }
       }
 
-      setPendingColheitas(remainingColheitas);
+      await setPendingColheitas(remainingColheitas);
 
       // 3) Sincroniza edições offline (updates)
       let colheitasUpdatesSent = 0;
@@ -580,7 +582,7 @@ export const useOfflineSync = () => {
         }
       }
 
-      setPendingColheitasUpdates(remainingUpdates);
+      await setPendingColheitasUpdates(remainingUpdates);
 
       const totalBefore = pendingPanhadores.length + pending.length + pendingUpdates.length;
       const remainingAfter = panhadoresRemaining + remainingColheitas.length + remainingUpdates.length;
@@ -588,7 +590,7 @@ export const useOfflineSync = () => {
 
       if (sentTotal > 0 && remainingAfter === 0) {
         toast({
-          title: "Sincronização completa",
+          title: "Dados sincronizados",
           description: `${totalBefore} registro(s) sincronizado(s)`,
         });
         return;

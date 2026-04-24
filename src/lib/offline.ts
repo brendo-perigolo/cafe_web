@@ -1,3 +1,5 @@
+import { idbGet, idbSet } from "@/lib/offlineDb";
+
 export const PENDING_COLHEITAS_KEY = "safra:pending_colheitas";
 export const LEGACY_PENDING_COLHEITAS_KEY = "pendingColheitas";
 
@@ -92,34 +94,159 @@ export interface PendingPanhadorOp {
   created_at: string;
 }
 
-export function getPendingColheitas(): PendingColheitaLocal[] {
-  const current = readJson<PendingColheitaLocal[]>(PENDING_COLHEITAS_KEY, []);
-  if (current.length) return current;
-  // backward compatibility
-  return readJson<PendingColheitaLocal[]>(LEGACY_PENDING_COLHEITAS_KEY, []);
+let memPendingColheitas: PendingColheitaLocal[] | null = null;
+let memPendingColheitasUpdates: PendingColheitaUpdateLocal[] | null = null;
+let memPendingPanhadorOps: PendingPanhadorOp[] | null = null;
+
+function ensureMemoryInit() {
+  if (memPendingColheitas == null) {
+    const current = readJson<PendingColheitaLocal[]>(PENDING_COLHEITAS_KEY, []);
+    memPendingColheitas = current.length ? current : readJson<PendingColheitaLocal[]>(LEGACY_PENDING_COLHEITAS_KEY, []);
+  }
+  if (memPendingColheitasUpdates == null) {
+    memPendingColheitasUpdates = readJson<PendingColheitaUpdateLocal[]>(PENDING_COLHEITAS_UPDATES_KEY, []);
+  }
+  if (memPendingPanhadorOps == null) {
+    memPendingPanhadorOps = readJson<PendingPanhadorOp[]>(PENDING_PANHADORES_OPS_KEY, []);
+  }
 }
 
-export function setPendingColheitas(next: PendingColheitaLocal[]) {
-  writeJson(PENDING_COLHEITAS_KEY, next);
+function mergeById<T extends { id: string }>(base: T[], extra: T[]) {
+  const map = new Map<string, T>();
+  base.forEach((it) => map.set(it.id, it));
+  extra.forEach((it) => {
+    if (!map.has(it.id)) map.set(it.id, it);
+  });
+  return Array.from(map.values());
+}
+
+function trySetLocalStorage(key: string, raw: string) {
+  try {
+    localStorage.setItem(key, raw);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function tryRemoveLocalStorage(key: string) {
+  try {
+    localStorage.removeItem(key);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function hydratePendingQueuesFromIdb() {
+  // Se o navegador apagou localStorage mas manteve IndexedDB, recupera as pendências.
+  try {
+    ensureMemoryInit();
+
+    const [rawColheitas, rawUpdates, rawOps] = await Promise.all([
+      idbGet(PENDING_COLHEITAS_KEY),
+      idbGet(PENDING_COLHEITAS_UPDATES_KEY),
+      idbGet(PENDING_PANHADORES_OPS_KEY),
+    ]);
+
+    const idbColheitas = rawColheitas ? (JSON.parse(rawColheitas) as PendingColheitaLocal[]) : [];
+    const idbUpdates = rawUpdates ? (JSON.parse(rawUpdates) as PendingColheitaUpdateLocal[]) : [];
+    const idbOps = rawOps ? (JSON.parse(rawOps) as PendingPanhadorOp[]) : [];
+
+    const nextColheitas = mergeById(memPendingColheitas ?? [], Array.isArray(idbColheitas) ? idbColheitas : []);
+    const nextUpdates = mergeById(memPendingColheitasUpdates ?? [], Array.isArray(idbUpdates) ? idbUpdates : []);
+    const nextOps = mergeById(memPendingPanhadorOps ?? [], Array.isArray(idbOps) ? idbOps : []);
+
+    const changed =
+      nextColheitas.length !== (memPendingColheitas ?? []).length ||
+      nextUpdates.length !== (memPendingColheitasUpdates ?? []).length ||
+      nextOps.length !== (memPendingPanhadorOps ?? []).length;
+
+    if (!changed) return;
+
+    memPendingColheitas = nextColheitas;
+    memPendingColheitasUpdates = nextUpdates;
+    memPendingPanhadorOps = nextOps;
+
+    // Best-effort espelha em localStorage para manter compatibilidade e leitura rápida.
+    writeJson(PENDING_COLHEITAS_KEY, nextColheitas);
+    removeKey(LEGACY_PENDING_COLHEITAS_KEY);
+    writeJson(PENDING_COLHEITAS_UPDATES_KEY, nextUpdates);
+    writeJson(PENDING_PANHADORES_OPS_KEY, nextOps);
+
+    notifyOfflineQueueUpdated();
+  } catch {
+    // ignore
+  }
+}
+
+// Fire-and-forget (não bloqueia render); mantém pendências mesmo se localStorage for limpo.
+void hydratePendingQueuesFromIdb();
+
+export function getPendingColheitas(): PendingColheitaLocal[] {
+  ensureMemoryInit();
+  return memPendingColheitas ?? [];
+}
+
+export async function setPendingColheitas(next: PendingColheitaLocal[]) {
+  ensureMemoryInit();
+  memPendingColheitas = next;
+  const raw = JSON.stringify(next);
+  const localOk = trySetLocalStorage(PENDING_COLHEITAS_KEY, raw);
   // cleanup legacy if present
-  removeKey(LEGACY_PENDING_COLHEITAS_KEY);
+  tryRemoveLocalStorage(LEGACY_PENDING_COLHEITAS_KEY);
   notifyOfflineQueueUpdated();
+
+  try {
+    await idbSet(PENDING_COLHEITAS_KEY, raw);
+    return;
+  } catch {
+    if (!localOk) {
+      throw new Error("Falha ao salvar dados offline no dispositivo");
+    }
+  }
 }
 
 export function getPendingColheitasUpdates(): PendingColheitaUpdateLocal[] {
-  return readJson<PendingColheitaUpdateLocal[]>(PENDING_COLHEITAS_UPDATES_KEY, []);
+  ensureMemoryInit();
+  return memPendingColheitasUpdates ?? [];
 }
 
-export function setPendingColheitasUpdates(next: PendingColheitaUpdateLocal[]) {
-  writeJson(PENDING_COLHEITAS_UPDATES_KEY, next);
+export async function setPendingColheitasUpdates(next: PendingColheitaUpdateLocal[]) {
+  ensureMemoryInit();
+  memPendingColheitasUpdates = next;
+  const raw = JSON.stringify(next);
+  const localOk = trySetLocalStorage(PENDING_COLHEITAS_UPDATES_KEY, raw);
   notifyOfflineQueueUpdated();
+
+  try {
+    await idbSet(PENDING_COLHEITAS_UPDATES_KEY, raw);
+    return;
+  } catch {
+    if (!localOk) {
+      throw new Error("Falha ao salvar alterações offline no dispositivo");
+    }
+  }
 }
 
 export function getPendingPanhadorOps(): PendingPanhadorOp[] {
-  return readJson<PendingPanhadorOp[]>(PENDING_PANHADORES_OPS_KEY, []);
+  ensureMemoryInit();
+  return memPendingPanhadorOps ?? [];
 }
 
-export function setPendingPanhadorOps(next: PendingPanhadorOp[]) {
-  writeJson(PENDING_PANHADORES_OPS_KEY, next);
+export async function setPendingPanhadorOps(next: PendingPanhadorOp[]) {
+  ensureMemoryInit();
+  memPendingPanhadorOps = next;
+  const raw = JSON.stringify(next);
+  const localOk = trySetLocalStorage(PENDING_PANHADORES_OPS_KEY, raw);
   notifyOfflineQueueUpdated();
+
+  try {
+    await idbSet(PENDING_PANHADORES_OPS_KEY, raw);
+    return;
+  } catch {
+    if (!localOk) {
+      throw new Error("Falha ao salvar fila offline no dispositivo");
+    }
+  }
 }

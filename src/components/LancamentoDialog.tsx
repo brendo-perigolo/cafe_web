@@ -668,7 +668,7 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
           const { error } = await supabase.from("panhadores").insert(payload);
           if (error) throw error;
         } else {
-          savePendingPanhadorCreate(selectedCompany.id, payload);
+          await savePendingPanhadorCreate(selectedCompany.id, payload);
         }
 
         const created: PanhadorOption = {
@@ -720,7 +720,7 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
           .eq("empresa_id", selectedCompany.id);
         if (error) throw error;
       } else {
-        savePendingPanhadorUpdate(selectedCompany.id, payload);
+        await savePendingPanhadorUpdate(selectedCompany.id, payload);
       }
 
       const next = panhadores
@@ -1214,11 +1214,22 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
           : {}),
       };
 
-      const enqueueOffline = () => {
-        const pending = savePendingColheita({
-          ...basePayload,
-          panhador_nome: effectiveSelected?.nome,
-        });
+      const enqueueOffline = async () => {
+        let pending: Awaited<ReturnType<typeof savePendingColheita>>;
+        try {
+          pending = await savePendingColheita({
+            ...basePayload,
+            panhador_nome: effectiveSelected?.nome,
+          });
+        } catch (e) {
+          console.error("Falha ao salvar colheita offline:", e);
+          toast({
+            title: "Falha ao salvar offline",
+            description: "Não foi possível gravar no dispositivo. Verifique espaço e tente novamente.",
+            variant: "destructive",
+          });
+          return;
+        }
 
         toastRegisteredWithPrint({
           title: "Salvo offline",
@@ -1242,7 +1253,7 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
       };
 
       if (!navigator.onLine) {
-        enqueueOffline();
+        await enqueueOffline();
         return;
       }
 
@@ -1258,7 +1269,7 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
           title: "Panhador pendente",
           description: "Este panhador foi cadastrado offline e ainda não sincronizou. Salvando a colheita offline para sincronizar depois.",
         });
-        enqueueOffline();
+        await enqueueOffline();
         return;
       }
 
@@ -1343,27 +1354,38 @@ export function LancamentoDialog({ open, onOpenChange, onCreated }: LancamentoDi
             ? (effectiveSelected?.bag_numero ?? "").trim()
             : null;
 
-          const pending = savePendingColheita({
-            id: colheitaId,
-            panhador_id: parsed.panhadorId,
-            panhador_nome: effectiveSelected?.nome,
-            peso_kg: parsed.pesoKg,
-            preco_por_kg: parsed.precoKg ?? null,
-            preco_por_balaio: precoPorBalaioFinal,
-            kg_por_balaio_utilizado: effectiveKgPorBalaio,
-            valor_total: valorTotal,
-            numero_bag: numeroBagParaColheita,
-            data_colheita: new Date().toISOString(),
-            empresa_id: selectedCompany.id,
-            aparelho_token: getDeviceToken(),
-            mostrar_balaio_no_ticket: usarBalaioNoTicket,
-            ...(propriedadesSupported
-              ? {
-                  propriedade_id: propriedadeId === PADRAO_OPTION ? null : toUuidOrNull(propriedadeId),
-                  lavoura_id: lavouraId === PADRAO_OPTION ? null : toUuidOrNull(lavouraId),
-                }
-              : {}),
-          });
+          let pending: Awaited<ReturnType<typeof savePendingColheita>>;
+          try {
+            pending = await savePendingColheita({
+              id: colheitaId,
+              panhador_id: parsed.panhadorId,
+              panhador_nome: effectiveSelected?.nome,
+              peso_kg: parsed.pesoKg,
+              preco_por_kg: parsed.precoKg ?? null,
+              preco_por_balaio: precoPorBalaioFinal,
+              kg_por_balaio_utilizado: effectiveKgPorBalaio,
+              valor_total: valorTotal,
+              numero_bag: numeroBagParaColheita,
+              data_colheita: new Date().toISOString(),
+              empresa_id: selectedCompany.id,
+              aparelho_token: getDeviceToken(),
+              mostrar_balaio_no_ticket: usarBalaioNoTicket,
+              ...(propriedadesSupported
+                ? {
+                    propriedade_id: propriedadeId === PADRAO_OPTION ? null : toUuidOrNull(propriedadeId),
+                    lavoura_id: lavouraId === PADRAO_OPTION ? null : toUuidOrNull(lavouraId),
+                  }
+                : {}),
+            });
+          } catch (e) {
+            console.error("Falha ao salvar colheita offline (fallback):", e);
+            toast({
+              title: "Falha ao salvar offline",
+              description: "Não foi possível gravar no dispositivo. Verifique espaço e tente novamente.",
+              variant: "destructive",
+            });
+            return;
+          }
 
           toastRegisteredWithPrint({
             title: "Salvo offline",
